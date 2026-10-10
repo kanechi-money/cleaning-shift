@@ -1,0 +1,601 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>清掃シフト帳</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=Zen+Maru+Gothic:wght@700&family=IBM+Plex+Mono:wght@500&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>
+<style>
+body{margin:0;font-size:14px}img{max-width:100%}[hidden]{display:none!important}
+
+/* Layout: one narrow column, phone-first; sticky role bar; day-grouped cleaning cards like a housekeeping roster */
+:root{
+  --bg:#F2F4F1;--surface:#FFFFFF;--ink:#1D2724;--muted:#5F6B67;--line:#DCE2DE;
+  --accent:#1E6B62;--accent-ink:#FFFFFF;--accent-soft:#E1EFEC;
+  --air:#C8455A;--bkg:#2D5AA0;--warn:#A85F0C;--warn-soft:#FBEFD9;--ok:#2E7D4F;--ok-soft:#E2F2E7;--danger:#C2302F;--danger-soft:#FBE4E2;
+  --font-display:"Zen Maru Gothic","Hiragino Maru Gothic ProN",sans-serif;
+  --font-body:"Zen Kaku Gothic New","Hiragino Sans","Noto Sans JP",sans-serif;
+  --font-num:"IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#141A18;--surface:#1C2421;--ink:#E6ECE9;--muted:#9AA7A2;--line:#2C3733;
+  --accent:#5FB8AB;--accent-ink:#0E1A17;--accent-soft:#1F3531;
+  --air:#E57A8B;--bkg:#7FA3E0;--warn:#E0A456;--warn-soft:#3A2E1C;--ok:#6CC08E;--ok-soft:#1E3326;--danger:#F08A80;--danger-soft:#3D1F1D;color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#141A18;--surface:#1C2421;--ink:#E6ECE9;--muted:#9AA7A2;--line:#2C3733;
+  --accent:#5FB8AB;--accent-ink:#0E1A17;--accent-soft:#1F3531;
+  --air:#E57A8B;--bkg:#7FA3E0;--warn:#E0A456;--warn-soft:#3A2E1C;--ok:#6CC08E;--ok-soft:#1E3326;--danger:#F08A80;--danger-soft:#3D1F1D;color-scheme:dark}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.6}
+.wrap{max-width:720px;margin:0 auto;padding-inline:16px;padding-block:0 48px}
+header.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);border-bottom:1px solid var(--line);padding-block:12px}
+.brand{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h1{font-family:var(--font-display);font-size:1.35rem;margin:0;letter-spacing:.02em}
+.demo{font-size:.75rem;color:var(--warn);background:var(--warn-soft);padding:2px 8px;border-radius:99px}
+.roles{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)}
+.seg button{border:0;background:none;color:var(--muted);padding:7px 14px;font:inherit;font-weight:500;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+select,input[type=number],input[type=text],textarea{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+textarea{width:100%;box-sizing:border-box;min-height:120px;font-family:var(--font-num);font-size:.8rem}
+.tabs{display:flex;gap:4px;margin-top:10px;overflow-x:auto}
+.tabs button{border:0;background:none;font:inherit;color:var(--muted);padding:6px 10px;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap}
+.tabs button[aria-selected="true"]{color:var(--ink);border-color:var(--accent);font-weight:700}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.summary{display:flex;gap:16px;margin-block:16px;flex-wrap:wrap;font-size:.9rem;color:var(--muted)}
+.summary b{font-family:var(--font-num);font-size:1.4rem;color:var(--ink);margin-right:4px}
+.summary .alert b{color:var(--warn)}
+.day{margin-top:18px}
+.day h2{font-size:.85rem;color:var(--muted);margin:0 0 6px;font-weight:700;letter-spacing:.04em;display:flex;gap:8px;align-items:center}
+.day h2 .rel{color:var(--accent)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:grid;gap:8px;margin-bottom:8px}
+.card.tap{cursor:pointer}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:space-between}
+.prop{font-weight:700}
+.chip{font-size:.72rem;padding:1px 8px;border-radius:99px;border:1px solid currentColor;font-weight:500}
+.chip.airbnb{color:var(--air)}.chip.booking{color:var(--bkg)}.chip.manual{color:var(--muted)}
+.facts{display:flex;gap:14px;flex-wrap:wrap;font-size:.9rem}
+.facts span b{font-family:var(--font-num);font-weight:500}
+.missing{color:var(--warn)}
+.pill{font-size:.75rem;padding:2px 10px;border-radius:99px;font-weight:700}
+.pill.open{background:var(--warn-soft);color:var(--warn)}
+.pill.set{background:var(--accent-soft);color:var(--accent)}
+.pill.done{background:var(--ok-soft);color:var(--ok)}
+.same{color:var(--danger);font-weight:700}
+.supp{font-size:.85rem;color:var(--muted)}.supp b{font-family:var(--font-num);color:var(--ink)}.supp .add{color:var(--accent)}
+.prep{font-size:1rem}.prep .lbl{font-size:.75rem;color:var(--muted);letter-spacing:.04em;margin-right:4px}.prep b{font-family:var(--font-num);font-size:1.15rem}
+.flag{border-radius:8px;padding:8px 10px;font-size:.88rem;display:grid;gap:6px}
+.flag.red{background:var(--danger-soft);color:var(--danger)}.flag.amber{background:var(--warn-soft);color:var(--warn)}
+.flag button{justify-self:start;font:inherit;font-size:.8rem;font-weight:700;border:1px solid currentColor;background:none;color:inherit;border-radius:8px;padding:3px 10px;cursor:pointer}
+.card:has(.flag.red){border-color:var(--danger)}.card:has(.flag.amber){border-color:var(--warn)}
+.btn{font:inherit;font-weight:700;border:0;border-radius:10px;padding:9px 16px;background:var(--accent);color:var(--accent-ink);cursor:pointer}
+.btn.ghost{background:none;color:var(--accent);border:1px solid var(--accent)}
+.btn.small{padding:5px 12px;font-size:.85rem}
+.empty{color:var(--muted);text-align:center;padding:32px 8px;border:1px dashed var(--line);border-radius:12px}
+.sect{margin-top:22px}
+.sect>h3{font-family:var(--font-display);font-size:1.05rem;margin:0 0 8px}
+.note{font-size:.82rem;color:var(--muted)}
+.checks{display:grid;gap:6px}
+.checks label{display:flex;gap:8px;align-items:center}
+.shots{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
+.shot{display:grid;gap:4px;align-content:start;font-size:.82rem}
+.shot img,.shot .ph{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:8px;max-width:100%}
+.shot .ph{display:grid;place-items:center;border:1px dashed var(--line);color:var(--muted);font-size:.75rem;position:relative;overflow:hidden}
+.shot .ph img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.35;border-radius:0}
+.shot .ph b{position:relative;background:var(--surface);color:var(--ink);padding:1px 8px;border-radius:99px;font-weight:700}
+.dsec{display:grid;gap:8px;border-top:1px solid var(--line);padding-top:12px}
+.dsec h5{margin:0;font-size:.95rem;display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.dsec h5 small{font-weight:400;color:var(--muted);font-size:.8rem}
+.alerts{display:grid;gap:8px;margin-top:16px}
+.alert-card{border-radius:12px;padding:12px 14px;display:grid;gap:6px}
+.alert-card.red{background:var(--danger-soft);color:var(--danger);border:1px solid var(--danger)}
+.alert-card.amber{background:var(--warn-soft);color:var(--warn);border:1px solid var(--warn)}
+.alert-card .body{color:var(--ink)}
+.alert-card .row button{font:inherit;font-size:.8rem;font-weight:700;border:1px solid currentColor;background:var(--surface);color:inherit;border-radius:8px;padding:3px 10px;cursor:pointer}
+.tr-item{background:var(--danger-soft);border-radius:8px;padding:8px 10px;display:grid;gap:6px;font-size:.9rem}
+.tr-item .t{color:var(--danger);font-weight:700}
+.thumbs{display:flex;gap:6px;flex-wrap:wrap}.thumbs img{width:72px;height:72px;object-fit:cover;border-radius:6px}
+.btn.danger{background:var(--danger);color:#fff}
+.lh{font-weight:700;font-size:.85rem;color:var(--accent);margin-top:8px;border-bottom:1px solid var(--line);padding-bottom:2px}
+.hint{font-size:.72rem;color:var(--muted)}
+.lowtag{font-size:.72rem;color:var(--warn);font-weight:700}
+details.refs summary{cursor:pointer;color:var(--accent);font-weight:700;font-size:.9rem}
+details.refs .shots{margin-top:8px}
+.shot.ok .sl::before{content:"✓ ";color:var(--ok);font-weight:700}
+.shot .btn{justify-self:start}
+dialog{border:0;border-radius:16px;padding:0;width:min(560px,calc(100vw - 32px));background:var(--surface);color:var(--ink)}
+dialog::backdrop{background:rgb(0 0 0 / .45)}
+.dlg{padding:18px;display:grid;gap:14px;max-height:80vh;overflow:auto}
+.dlg h4{margin:0;font-family:var(--font-display);font-size:1.15rem}
+.tbl{width:100%;border-collapse:collapse;font-size:.9rem}
+.tbl td,.tbl th{padding:8px 6px;border-bottom:1px solid var(--line);text-align:left}
+.tbl td.n{font-family:var(--font-num);text-align:right}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:10px;font-size:.9rem;max-width:90vw}
+@media (prefers-reduced-motion:no-preference){.card{transition:border-color .15s}.card.tap:hover{border-color:var(--accent)}}
+
+</style></head><body>
+<header class="bar"><div class="wrap" style="padding-block:0">
+  <div class="brand"><h1>清掃シフト帳</h1><span id="who" class="note"></span></div>
+  <div class="roles" id="roles" hidden>
+    <div class="seg" role="group" aria-label="表示">
+      <button id="r-owner" data-act="role" data-v="owner">オーナー</button>
+      <button id="r-staff" data-act="role" data-v="staff">スタッフの画面</button>
+    </div>
+    <select id="staffPick" aria-label="スタッフを選ぶ"></select>
+  </div>
+  <nav class="tabs" id="tabs" role="tablist" hidden></nav>
+</div></header>
+<main class="wrap" id="main"><p class="empty">読み込み中…</p></main>
+<dialog id="dlg"><div class="dlg" id="dlgBody"></div></dialog>
+<div class="toast" id="toast" hidden></div>
+<script>
+
+const FINAL=["【寝室】", "ベッドフレームに埃がない", "照明がつく（ベッドフレーム2箇所）", "ベッドの下にごみやほこりがたまっていない", "シワがなく綺麗にベッドメイクされている", "シーツに髪の毛がついていない", "異臭がない", "押入れの布団が整理されている", "タオルがセットされている", "【キッチン】", "ハンドソープ・食器洗剤の残量（半分以下で補充）", "水垢、油汚れがない", "ゴミが残っていない", "レンジ・冷蔵庫・冷凍庫の中を確認", "スポンジを替える（小さいもの1つ）", "食器棚・家電に埃がない", "床に汚れがない", "コーヒー・お茶などを補充（宿泊人数分十分あるか）", "お菓子・水・ジュースがセットされている", "【洗濯機上】", "アメニティを補充（歯ブラシ／ボディスポンジ／コットン／くし）", "ドライヤー・アイロンのコードが綺麗にされている", "洗濯ジェルボールが十分にある（6〜7個）", "洗濯機のゴミはないか（洗濯カス、内部）", "【トイレ】", "異臭がしない", "芳香剤の残量確認（なくなってから交換）", "トイレットペーパーを三角に折る・補充（棚に置けるだけ）", "便器・便座・床に汚れがない", "汚物入れの確認", "スリッパがきれい（裏面も）", "壁に汚れがない", "【浴室】", "清掃ブラシに髪の毛がついていない", "洗面台がきれい", "壁にカビがない", "シャンプー等の残量確認（半分以下で補充）", "シャワーが正常", "異臭がない", "鏡が汚れていない", "水滴を拭き取っている・水垢がない", "排水溝に髪の毛が残っていない", "【玄関】", "郵便受けにチラシが入っていない", "土間にごみ・埃がない", "玄関マットが汚れていない", "スリッパがそろっている", "スリッパの裏に髪の毛等がついていない", "ドア・鍵が正常", "照明がつく", "芳香剤の残量（なくなってから補充）", "ウエットティッシュの残量確認", "ハンガーが整えられている", "【リビング】", "ソファ・カーペットに髪の毛がついていない", "エアコンが作動する", "カーテン・サッシ・スクリーンが汚れていない", "テーブルが汚れていない", "テーブルセッティング（花瓶／おたくさ／メッセージカード／Wi-Fi）", "ティッシュが補充されている（毎回残量確認）", "椅子のセッティングがされている", "椅子下のBOXが整っている（カメラ／リモコン／けん玉／UNO／トランプ）", "【最終チェック】", "ゴミが残っていない", "忘れ物がない", "電気オフ", "エアコンオフ", "窓・カーテンが閉まっている", "Wi-Fiが正常", "お湯が出る", "掃除機の中にゴミが残っていない"];
+const STOCK=["【キッチン】", "水｜ストック無", "オレンジジュース｜4", "グレープジュース｜4", "ジンジャーエール｜4", "コーラ｜4", "三谷サイダー｜4", "お茶｜10", "コーヒー｜10", "おたくさ｜10", "割り箸｜残5本", "ラップ｜ストック無", "アルミホイル｜ストック無", "ゴミ袋（リビング用）｜ストック無", "ゴミ袋 20ℓ｜ストック無", "ゴミ袋 45ℓ｜ストック無", "キッチンペーパー｜ストック無", "スポンジ｜4", "食器洗剤｜ストック無", "アルコールスプレー｜ストック無", "キッチンハイタースプレー｜ストック無", "ハンドソープ｜ストック無", "爪楊枝｜なくなりかけたら", "ティッシュペーパー｜2", "ペーパータオル｜ストック無", "【浴室・洗面】", "ジェルボール｜ストック無", "シャンプー詰め替え｜ストック無", "リンス詰め替え｜ストック無", "ボディソープ詰め替え｜ストック無", "バスマジックリン詰め替え｜ストック無", "【消臭・芳香剤】", "ファブリーズ詰替｜ストック無", "玄関芳香剤｜なくなりかけたら", "【トイレ】", "トイレットペーパー｜3", "流せるトイレシート｜残り3枚", "トイレマジックリン｜なくなりかけたら", "消臭元スプレー｜なくなりかけたら", "トイレハイター｜なくなりかけたら", "芳香剤｜ストック無", "【アメニティ】", "くし｜20", "歯ブラシ｜20", "コットンセット｜20", "ボディスポンジ｜20", "クレンジングオイル｜なくなりかけたら", "化粧水｜なくなりかけたら", "乳液｜なくなりかけたら", "耳栓｜10", "【掃除用品】", "カーペットコロコロ スペア｜1", "フローリングシート｜残り3枚", "フローリングウェットシート｜ストック無", "マイクロファイバークロス｜使えなくなったら", "雑巾｜使えなくなったら", "激落ちシート（キッチン）｜残り5枚", "激落ちシート（緑）｜残り5枚", "アースジェット｜なくなりかけたら"];
+const TRT=['破損','汚損','忘れ物','その他'];
+const man=()=>S.manualUrl||'';
+const manBtn=()=>man()?`<a class="btn ghost small" style="text-decoration:none;justify-self:start" href="${h(man())}" target="_blank" rel="noopener">清掃マニュアルを見る</a>`:'';
+const isH=l=>/^【.*】$/.test(l);
+const nm=l=>l.split('｜')[0].trim();
+const items=L=>L.filter(l=>!isH(l)).map(nm);
+function listHtml(L,fn){let i=0;return L.map(l=>isH(l)?`<div class="lh">${h(l.slice(1,-1))}</div>`:fn(nm(l),(l.split('｜')[1]||'').trim(),i++)).join('')}
+const fl=p=>p.finalList||FINAL, sl=p=>p.stockList||STOCK;
+const TRS=c=>c.troubles||(c.troubles=[]);
+const CHECKS=['ベッドメイク・タオル','備品（プロジェクターなど）','アメニティ','冷蔵庫の中','キッチン全体','キッチンのシンク・蛇口','お風呂場全体','お風呂場の蛇口','洗面台・鏡','リビング全体'];
+const SH=c=>c.shots||(c.shots={});
+const WD='日月火水木金土';
+const $=s=>document.querySelector(s);
+const h=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ymd=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const add=(s,n)=>{const d=new Date(s+'T00:00');d.setDate(d.getDate()+n);return ymd(d)};
+const diff=(a,b)=>Math.round((new Date(b+'T00:00')-new Date(a+'T00:00'))/864e5);
+const TODAY=ymd(new Date());
+const md=s=>{const d=new Date(s+'T00:00');return `${d.getMonth()+1}/${d.getDate()}(${WD[d.getDay()]})`};
+const rel=s=>({0:'今日',1:'明日',[-1]:'昨日'})[diff(TODAY,s)]||'';
+const uid=()=>Math.random().toString(36).slice(2,9);
+const SRC={airbnb:'Airbnb',booking:'Booking.com',manual:'手入力'};
+/* ---------- state & data (Supabase) ---------- */
+let sb=null, ME=null, NAMES={};
+let S={properties:[],staff:[],pending:[],reservations:[],cleanings:{},extras:[],confirms:{},rate:3000,manualUrl:''};
+let ui={role:'owner',staff:null,tab:'clean'};
+try{const t=JSON.parse(localStorage.getItem('cs-ui')||'{}');if(t.tab)ui.tab=t.tab}catch(e){}
+const saveUi=()=>{try{localStorage.setItem('cs-ui',JSON.stringify({tab:ui.tab}))}catch(e){}};
+const nameOf=id=>NAMES[id]||'';
+
+async function loadAll(){
+  const r=await Promise.all([
+    sb.from('settings').select('*').eq('id',1).maybeSingle(),
+    sb.from('properties').select('*').order('created_at'),
+    sb.from('property_secrets').select('*'),
+    sb.from('profiles').select('*').order('created_at'),
+    sb.from('reservations').select('*').eq('cancelled',false),
+    sb.from('cleanings').select('*'),
+    sb.from('stock_low').select('*'),
+    sb.from('extras').select('*'),
+    sb.from('confirms').select('*')]);
+  const bad=r.find(x=>x.error);if(bad){console.error(bad.error);toast('データを読み込めませんでした。通信を確認してください');return false}
+  const [st,pr,sec,pf,rs,cl,lw,ex,cf]=r.map(x=>x.data);
+  const {data:{user}}=await sb.auth.getUser();
+  NAMES=Object.fromEntries((pf||[]).map(p=>[p.id,p.name]));
+  ME=(pf||[]).find(p=>p.id===user?.id)||null;
+  S.rate=st?.rate??3000;S.manualUrl=st?.manual_url||'';
+  const secBy=Object.fromEntries((sec||[]).map(s=>[s.property_id,s]));
+  S.properties=(pr||[]).map(p=>({id:p.id,name:p.name,finalList:p.final_list||null,stockList:p.stock_list||null,refs:p.refs||{},low:{},
+    airbnb:secBy[p.id]?.airbnb_ical||'',booking:secBy[p.id]?.booking_ical||''}));
+  (lw||[]).forEach(l=>{const P=S.properties.find(p=>p.id===l.property_id);if(P)P.low[l.item]={by:l.by,at:l.at}});
+  S.staff=(pf||[]).filter(p=>p.role==='staff'&&p.active).map(p=>({id:p.id,name:p.name,props:p.props||[]}));
+  S.pending=(pf||[]).filter(p=>p.role==='staff'&&!p.active&&!p.removed).map(p=>({id:p.id,name:p.name}));
+  S.reservations=(rs||[]).map(r=>({id:r.id,propertyId:r.property_id,source:r.source,checkin:r.checkin,checkout:r.checkout,guests:r.guests,towelAdd:r.towel_add||0}));
+  S.cleanings={};(cl||[]).forEach(c=>{S.cleanings[c.reservation_id]={...(c.data||{}),staffId:c.staff_id||'',doneAt:c.done_at||null}});
+  S.extras=(ex||[]).map(e=>({id:e.id,date:e.date,staffId:e.staff_id,amount:e.amount,note:e.note||''}));
+  S.confirms={};(cf||[]).forEach(c=>{S.confirms[c.month+':'+c.staff_id]={at:c.at,total:c.total}});
+  return true;
+}
+async function q(p,msg){
+  const {error}=await p;
+  if(error){console.error(error);toast(msg||'保存できませんでした。通信を確認してください');await loadAll();render();if(dlg.open)dlg.close();return false}
+  return true;
+}
+function saveCleaning(rid,msg){
+  const c=S.cleanings[rid]||{};const data={};
+  ['shots','final','troubles'].forEach(k=>{if(c[k])data[k]=c[k]});
+  ['snapA','snapD'].forEach(k=>{if(k in c)data[k]=c[k]});
+  return q(sb.from('cleanings').upsert({reservation_id:rid,staff_id:c.staffId||null,done_at:c.doneAt||null,data,updated_at:new Date().toISOString()}),msg);
+}
+async function upload(dataUrl){
+  const blob=await (await fetch(dataUrl)).blob();
+  const path=`p/${crypto.randomUUID()}.jpg`;
+  const {error}=await sb.storage.from('photos').upload(path,blob,{contentType:'image/jpeg'});
+  if(error){console.error(error);toast('写真をアップロードできませんでした');return null}
+  return sb.storage.from('photos').getPublicUrl(path).data.publicUrl;
+}
+async function syncNow(force){
+  if(!force||ME?.role!=='owner')return;
+  toast('予約を取り込んでいます…');
+  const {error}=await sb.rpc('sync_now');if(error){toast('取り込めませんでした');return}
+  let tot={added:0,updated:0,cancelled:0},last=null;
+  for(let i=0;i<6;i++){await new Promise(r=>setTimeout(r,2500));
+    const {data,error:e}=await sb.rpc('sync_collect');if(e)break;last=data;
+    ['added','updated','cancelled'].forEach(k=>tot[k]+=data[k]||0);if(!data.pending)break}
+  toast(last?.error?`読み込めないカレンダーがあります（${last.error}）`:`予約を取り込みました（新規${tot.added}・変更${tot.updated}・キャンセル${tot.cancelled}）`);
+  await loadAll();render();
+}
+
+/* ---------- login ---------- */
+function renderLogin(mode){
+  mode=mode||'in';
+  $('#roles').hidden=true;$('#tabs').hidden=true;$('#who').textContent='';
+  $('#main').innerHTML=`<div class="card" style="margin-top:24px;max-width:420px">
+   <div class="seg" role="group"><button data-act="lmode" data-v="in" aria-pressed="${mode==='in'}">ログイン</button><button data-act="lmode" data-v="up" aria-pressed="${mode==='up'}">はじめて使う</button></div>
+   <form id="authf" class="checks" style="gap:10px">
+    ${mode==='up'?`<label>お名前（ほかの人に表示されます）<input type="text" id="au-name" required autocomplete="name" style="width:100%;box-sizing:border-box"></label>`:''}
+    <label>メールアドレス<input type="email" id="au-mail" required autocomplete="email" style="width:100%;box-sizing:border-box"></label>
+    <label>パスワード（6文字以上）<input type="password" id="au-pass" required minlength="6" autocomplete="${mode==='up'?'new-password':'current-password'}" style="width:100%;box-sizing:border-box"></label>
+    <button class="btn" type="submit">${mode==='up'?'登録する':'ログイン'}</button>
+   </form>
+   ${mode==='up'?'<p class="note" style="margin:0">登録したら、オーナーが承認するまで少し待ってください。</p>':''}</div>`;
+  $('#authf').onsubmit=async e=>{
+    e.preventDefault();
+    const email=$('#au-mail').value.trim(),password=$('#au-pass').value;
+    if(mode==='up'){
+      const {data,error}=await sb.auth.signUp({email,password,options:{data:{name:$('#au-name').value.trim()}}});
+      if(error){toast(error.message.includes('registered')?'このメールアドレスはもう登録されています。ログインしてください':'登録できませんでした：'+error.message);return}
+      if(!data.session)toast('確認メールを送りました。メールのリンクを開いてからログインしてください');
+    }else{
+      const {error}=await sb.auth.signInWithPassword({email,password});
+      if(error)toast('メールアドレスかパスワードが違います');
+    }
+  };
+}
+let startedFor=null;
+async function start(session){
+  if(!session){ME=null;startedFor=null;renderLogin();return}
+  if(startedFor===session.user.id)return;startedFor=session.user.id;
+  $('#main').innerHTML='<p class="empty">読み込み中…</p>';
+  if(!await loadAll())return;
+  if(!ME){$('#main').innerHTML='<p class="empty">プロフィールが見つかりません。オーナーに連絡してください。</p>';return}
+  if(ME.role==='staff'){ui.role='staff';ui.staff=ME.id}else{ui.staff=S.staff[0]?.id||null}
+  render();
+}
+const SUPABASE_URL='https://afxbacplkhnovsygiune.supabase.co';
+const SUPABASE_KEY='sb_publishable_VH73iuL727rYtlWkE3zu3w_qZvXn-pY'; // 公開用キー（ブラウザに置いてよいもの）
+async function boot(){
+  sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+  sb.auth.onAuthStateChange((ev,s)=>{if(ev==='SIGNED_IN'||ev==='SIGNED_OUT'||ev==='INITIAL_SESSION')setTimeout(()=>start(s),0)});
+  document.addEventListener('visibilitychange',async()=>{if(document.visibilityState==='visible'&&ME&&ME.active&&!dlg.open){await loadAll();render()}});
+}
+
+const prop=id=>S.properties.find(p=>p.id===id)||{name:'(削除済み)'};
+const staff=id=>S.staff.find(s=>s.id===id);
+const C=id=>S.cleanings[id]||(S.cleanings[id]={staffId:'',checks:{},photos:[],doneAt:null});
+const nextOf=r=>S.reservations.filter(x=>x.propertyId===r.propertyId&&x.id!==r.id&&x.checkin>=r.checkout).sort((a,b)=>a.checkin<b.checkin?-1:1)[0];
+const snap=n=>n?{id:n.id,checkin:n.checkin,guests:n.guests??null,nights:diff(n.checkin,n.checkout)}:null;
+const desc=s=>s?`${md(s.checkin)}IN ${s.guests??'?'}名・${s.nights}泊`:'予約なし';
+function flag(x){
+  const c=x.c,cur=snap(x.next);
+  if(c.doneAt){const s=c.snapD;if(s===undefined||!cur||cur.checkin<TODAY)return null;
+    const more=(cur.guests||0)-(s?.guests||0);
+    if(s&&s.id===cur.id&&cur.checkin>=s.checkin&&more<=0)return null;
+    return {lv:'red',msg:`⚠ 清掃後に予約が変わりました<br>清掃時：${desc(s)} → 今：${desc(cur)}<br>${more>0?`<b>寝具・アメニティを${more}名分追加</b>してください`:'準備内容を確認してください'}`,ack:'追加準備しました'}}
+  if(c.staffId){const s=c.snapA;if(s===undefined||JSON.stringify(s)===JSON.stringify(cur))return null;
+    return {lv:'amber',msg:`担当決定後に次の予約が変わりました<br>前：${desc(s)} → 今：${desc(cur)}`,ack:'確認しました'}}
+  return null;
+}
+function cleanings(){
+  return S.reservations.map(r=>{
+    const next=nextOf(r);
+    const c=S.cleanings[r.id]||{};
+    if(c.staffId&&!c.doneAt&&!('snapA' in c))c.snapA=snap(next);
+    if(c.doneAt&&!('snapD' in c))c.snapD=snap(next);
+    return {r,date:r.checkout,next,c,status:c.doneAt?'done':c.staffId?'set':'open'};
+  }).sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:prop(a.r.propertyId).name.localeCompare(prop(b.r.propertyId).name));
+}
+const pillTxt={open:'未担当',set:'担当決定',done:'完了'};
+function supplies(r){
+  const g=r.guests,n=diff(r.checkin,r.checkout);if(!g)return null;
+  return {towel:g*Math.min(n,2)+(r.towelAdd||0),
+    water:Math.min(10,g===1?Math.max(2,n):g*n),
+    snack:g<=2?(n>=2?4:2):g};
+}
+function facts(x){
+  const r=x.r,n=x.next;
+  const prep=n?`<div class="prep"><span class="lbl">次の準備</span><b>${n.guests??'?'}</b>名分・<b>${diff(n.checkin,n.checkout)}</b>泊　${n.checkin===x.date?'<span class="same">当日IN</span>':`${md(n.checkin)} IN`}${n.guests?'':' <span class="missing">人数未入力</span>'}</div>`:'<div class="prep note">次の予約はまだありません</div>';
+  const sp=n&&supplies(n);
+  const supp=sp?`<div class="supp">タオル <b>${sp.towel}</b>枚${n.towelAdd?`<span class="add">（追加${n.towelAdd}含む）</span>`:''}・水 <b>${sp.water}</b>本・お菓子 <b>${sp.snack}</b>個</div>`:'';
+  const f=flag(x);const canAck=ME.role==='owner'||x.c.staffId===ME.id;
+  return prep+supp+(ui.role!=='owner'?'':`<div class="note">退室するお客さま：${r.guests??'?'}名・${diff(r.checkin,r.checkout)}泊（${md(r.checkin)}〜）</div>`)+
+    (f?`<div class="flag ${f.lv}"><span>${f.msg}</span>${canAck?`<button data-act="ack" data-id="${r.id}">${f.ack}</button>`:''}</div>`:'');
+}
+function cardHead(x){return `<div class="row"><span><span class="prop">${h(prop(x.r.propertyId).name)}</span> <span class="chip ${x.r.source}">${SRC[x.r.source]}</span></span><span class="pill ${x.status}">${pillTxt[x.status]}</span></div>`}
+function grouped(list,fn){
+  if(!list.length)return '';
+  const by={};list.forEach(x=>(by[x.date]??=[]).push(x));
+  return Object.keys(by).map(d=>`<section class="day"><h2>${md(d)}<span class="rel">${rel(d)}</span></h2>${by[d].map(fn).join('')}</section>`).join('');
+}
+
+/* ---------- owner ---------- */
+function ownerClean(){
+  const list=cleanings().filter(x=>x.date>=add(TODAY,-3)&&x.date<=add(TODAY,45));
+  const up=list.filter(x=>x.date>=TODAY);
+  const open=up.filter(x=>x.status==='open').length, wk=up.filter(x=>x.date<=add(TODAY,7)).length;
+  return alertsHtml()+`<div class="summary"><span><b>${wk}</b>件 今後7日の清掃</span><span class="${open?'alert':''}"><b>${open}</b>件 未担当</span><span class="${list.some(flag)?'alert':''}"><b>${list.filter(flag).length}</b>件 予約変更あり</span></div>`+
+  (grouped(list,x=>{
+    const opts=S.staff.filter(s=>s.props.includes(x.r.propertyId)).map(s=>`<option value="${s.id}" ${x.c.staffId===s.id?'selected':''}>${h(s.name)}</option>`).join('');
+    const tr=(x.c.troubles||[]).filter(t=>!t.resolved).length;
+    return `<div class="card">${cardHead(x)}${facts(x)}${tr?`<div class="flag red"><span>トラブル報告 ${tr}件</span></div>`:''}<div class="row">
+      <label class="note">担当 <select id="as-${x.r.id}" data-act="assign" data-id="${x.r.id}"><option value="">未担当</option>${opts}</select></label>
+      <button class="btn ghost small" data-act="detail" data-id="${x.r.id}">${x.c.doneAt?`報告を見る（写真${Object.keys(x.c.shots||{}).length}/${CHECKS.length}）`:'詳細'}</button></div></div>`;
+  })||`<p class="empty">清掃予定はまだありません。<br>「設定」で予約カレンダーを取り込むと、チェックアウト日に清掃が入ります。</p>`);
+}
+function trHtml(t,x,owner){
+  const st={name:nameOf(t.by)};
+  return `<div class="${owner?'alert-card red':'tr-item'}"><div class="row"><span class="t">${t.type}${owner?`｜${h(prop(x.r.propertyId).name)} ${md(x.date)}`:''}</span><span class="note">${st?h(st.name):''} ${md(t.at)}</span></div>
+   <div class="body">${h(t.note)||'（記入なし）'}</div>${t.photos.length?`<div class="thumbs">${t.photos.map(p=>`<img src="${p}" alt="${t.type}の写真">`).join('')}</div>`:''}
+   ${owner?`<div class="row" style="justify-content:flex-end"><button data-act="detail" data-id="${x.r.id}">清掃を開く</button><button data-act="trdone" data-id="${x.r.id}" data-t="${t.id}">対応済みにする</button></div>`:''}</div>`;
+}
+function alertsHtml(){
+  const trs=cleanings().flatMap(x=>(x.c.troubles||[]).filter(t=>!t.resolved).map(t=>trHtml(t,x,true)));
+  const lows=S.properties.filter(p=>Object.keys(p.low||{}).length).map(p=>`<div class="alert-card amber"><b>在庫が少なくなっています｜${h(p.name)}</b>
+   ${Object.entries(p.low).map(([k,v])=>`<div class="row"><span class="body">${h(k)} <span class="note">${h(nameOf(v.by))} ${md(v.at)}</span></span><button data-act="refill" data-id="${p.id}" data-k="${h(k)}">補充した</button></div>`).join('')}</div>`);
+  return trs.length||lows.length?`<div class="alerts">${trs.join('')}${lows.join('')}</div>`:'';
+}
+function ownerRes(){
+  const list=S.reservations.filter(r=>r.checkout>=TODAY).sort((a,b)=>a.checkin<b.checkin?-1:1);
+  return `<div class="row" style="margin-top:16px"><p class="note" style="margin:0">カレンダーには人数が入らないので、ここで入力します。スタッフ画面にも表示されます。</p><button class="btn ghost small" data-act="syncnow">今すぐ予約を取り込む</button></div>`+
+  (list.map(r=>`<div class="card"><div class="row"><span><span class="prop">${h(prop(r.propertyId).name)}</span> <span class="chip ${r.source}">${SRC[r.source]}</span></span>
+   <span class="note">${md(r.checkin)} 〜 ${md(r.checkout)}・${diff(r.checkin,r.checkout)}泊</span></div>
+   <div class="row"><label>宿泊人数 <input type="number" min="1" max="30" id="g-${r.id}" data-act="guests" data-id="${r.id}" value="${r.guests??''}" style="width:5em" placeholder="未入力"> 名</label>
+   <label>タオル追加 <input type="number" min="0" max="30" id="t-${r.id}" data-act="towel" data-id="${r.id}" value="${r.towelAdd||''}" style="width:4em" placeholder="0"> 枚</label>
+   ${r.source==='manual'?`<button class="btn ghost small" data-act="delres" data-id="${r.id}">削除</button>`:''}</div></div>`).join('')||'<p class="empty">今後の予約はありません。</p>')+
+  `<div class="sect"><button class="btn ghost" data-act="addres">予約を手入力で追加</button></div>`;
+}
+const yen=n=>'¥'+n.toLocaleString('ja-JP');
+const rate=()=>S.rate??3000;
+function monthCalc(){
+  const b=new Date(TODAY+'T00:00');b.setDate(1);b.setMonth(b.getMonth()+(ui.mOff||0));const m=ymd(b).slice(0,7);
+  const done=cleanings().filter(x=>x.c.doneAt&&x.date.startsWith(m));
+  const ex=(S.extras||[]).filter(e=>e.date.startsWith(m));
+  const rows=S.staff.map(st=>{const d=done.filter(x=>x.c.staffId===st.id),e=ex.filter(x=>x.staffId===st.id);
+    return {st,d,e,total:d.length*rate()+e.reduce((a,x)=>a+x.amount,0)}});
+  return {b,m,rows};
+}
+const cfKey=(m,id)=>m+':'+id;
+function cfState(m,r){const c=(S.confirms||{})[cfKey(m,r.st.id)];return !c?'none':c.total===r.total?'ok':'changed'}
+function cfTag(m,r){const st=cfState(m,r),c=(S.confirms||{})[cfKey(m,r.st.id)];
+  return st==='ok'?`<span class="pill done">確認済み ${md(c.at)}</span>`:st==='changed'?`<span class="pill open">金額変更・再確認待ち</span>`:`<span class="pill set">未確認</span>`}
+const monNav=(b,label)=>`<div class="row" style="margin-top:16px"><button class="btn ghost small" data-act="mon" data-v="-1">← 前月</button><h3 style="margin:0;font-family:var(--font-display)">${b.getFullYear()}年${b.getMonth()+1}月${label}</h3><button class="btn ghost small" data-act="mon" data-v="1">翌月 →</button></div>`;
+function detailTable(r){return `<table class="tbl">${r.d.map(x=>`<tr><td>${md(x.date)}</td><td>${h(prop(x.r.propertyId).name)}</td><td class="n">${yen(rate())}</td></tr>`).join('')}${r.e.map(x=>`<tr><td>${md(x.date)}</td><td>追加：${h(x.note||'')}</td><td class="n">${yen(x.amount)}${ME.role==='owner'&&ui.role==='owner'?` <button class="btn ghost small" data-act="delex" data-id="${x.id}">削除</button>`:''}</td></tr>`).join('')}</table>`}
+function staffPay(me){
+  const {b,m,rows}=monthCalc();const r=rows.find(x=>x.st.id===me.id);const st=cfState(m,r);
+  return `<div class="sect">${monNav(b,'の支払い明細')}<div class="card"><div class="row"><b style="font-family:var(--font-num);font-size:1.3rem">${yen(r.total)}</b>${cfTag(m,r)}</div>
+   <div class="note">清掃 ${r.d.length}回 × ${yen(rate())}${r.e.length?`　＋　追加清掃 ${r.e.length}件`:''}</div>
+   ${r.d.length||r.e.length?detailTable(r):''}
+   ${st!=='ok'&&r.total&&ME.id===r.st.id?`<p class="note" style="margin:0">${st==='changed'?'確認したあとに金額が変わりました。もう一度確認してください。':'月末に内容を見て、合っていれば押してください。'}</p><button class="btn" style="justify-self:start" data-act="confirm" data-v="${m}">内容を確認しました</button>`:''}</div></div>`;
+}
+function csvOf(m,rows){
+  const q=v=>`"${String(v).replace(/"/g,'""')}"`;
+  const L=[];
+  rows.forEach(r=>{r.d.forEach(x=>L.push([x.date,prop(x.r.propertyId).name,r.st.name,'清掃','',rate()]));r.e.forEach(x=>L.push([x.date,'',r.st.name,'追加清掃',x.note||'',x.amount]))});
+  L.sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0);
+  return [['日付','物件','スタッフ','区分','内容','金額'],...L].map(r=>r.map(q).join(',')).join('\r\n');
+}
+function ownerTally(){
+  const {b,m,rows}=monthCalc();
+  const pending=cleanings().filter(x=>x.date.startsWith(m)&&!x.c.doneAt&&x.date<TODAY).length;
+  return monNav(b,'の支払い')+`
+  <p class="note">完了報告された清掃 × ${yen(rate())} ＋ 追加清掃。担当を変えると、支払いも新しい担当者に移ります。${pending?`<span class="missing">完了報告がまだの清掃が${pending}件あります。</span>`:''}</p>
+  ${rows.map(r=>`<div class="card"><div class="row"><span><span class="prop">${h(r.st.name)}</span> ${cfTag(m,r)}</span><b style="font-family:var(--font-num);font-size:1.2rem">${yen(r.total)}</b></div>
+   <div class="note">清掃 ${r.d.length}回 × ${yen(rate())}${r.e.length?`　＋　追加清掃 ${r.e.length}件`:''}</div>
+   ${r.d.length||r.e.length?`<details><summary class="note" style="cursor:pointer">明細を見る</summary>${detailTable(r)}</details>`:''}</div>`).join('')}
+  <div class="card"><div class="row"><span>合計</span><b style="font-family:var(--font-num);font-size:1.2rem">${yen(rows.reduce((a,r)=>a+r.total,0))}</b></div>
+   <button class="btn ghost small" style="justify-self:start" data-act="csv">CSVで保存（会計ソフト・確定申告用）</button></div>
+  <div class="sect"><h3>追加清掃を記入</h3><div class="card">
+   <label>日付 <input type="date" id="ex-d" value="${TODAY.startsWith(m)?TODAY:m+'-01'}"></label>
+   <label>スタッフ <select id="ex-s">${S.staff.map(st=>`<option value="${st.id}">${h(st.name)}</option>`).join('')}</select></label>
+   <label>金額 <input type="number" id="ex-a" value="${rate()}" step="500" style="width:7em"> 円</label>
+   <label>内容 <input type="text" id="ex-n" placeholder="例：ゲスト要望で滞在中清掃" style="width:100%;box-sizing:border-box"></label>
+   <button class="btn" style="justify-self:start" data-act="addex">追加</button></div></div>`;
+}
+
+/* ---------- staff ---------- */
+function staffView(){
+  const me=staff(ui.staff);if(!me)return '<p class="empty">スタッフが登録されていません。</p>';
+  const all=cleanings();
+  const mine=all.filter(x=>x.c.staffId===me.id&&(x.date>=TODAY||!x.c.doneAt||x.date>=add(TODAY,-3)||flag(x)));
+  const open=all.filter(x=>x.status==='open'&&x.date>=TODAY&&me.props.includes(x.r.propertyId));
+  const card=(x,btn)=>`<div class="card ${btn?'':'tap'}" ${btn?'':`data-act="detail" data-id="${x.r.id}"`}>${cardHead(x)}${facts(x)}${btn?`<div class="row" style="justify-content:flex-end"><button class="btn small" data-act="take" data-id="${x.r.id}">この清掃に入る</button></div>`:''}</div>`;
+  return `<div class="row" style="margin-top:16px"><p class="note" style="margin:0">${h(me.name)}さんの画面です。ほかのスタッフの担当は表示されません。</p>${manBtn()}</div>
+  <div class="sect"><h3>あなたの担当</h3>${grouped(mine,x=>card(x))||'<p class="empty">担当はまだありません。下の「募集中」から入れます。</p>'}</div>
+  <div class="sect"><h3>募集中の清掃</h3>${grouped(open,x=>card(x,true))||'<p class="empty">募集中の清掃はありません。</p>'}</div>${staffPay(me)}`;
+}
+
+/* ---------- dialogs ---------- */
+const dlg=$('#dlg');
+function openDlg(html){$('#dlgBody').innerHTML=html;try{dlg.showModal()}catch(e){dlg.setAttribute('open','')}}
+function detail(id){
+  const x=cleanings().find(c=>c.r.id===id);if(!x)return;const c=C(id);const st=staff(c.staffId);
+  const canDo=ME.role==='staff'&&c.staffId===ME.id&&!c.doneAt;
+  const mine=ME.role==='staff'&&c.staffId===ME.id;const P=prop(x.r.propertyId);const F=c.final||{};
+  openDlg(`<h4>${h(prop(x.r.propertyId).name)}　${md(x.date)}</h4>${facts(x)}
+   <div class="row"><span class="note">担当：${st?h(st.name):'未担当'}${c.doneAt?`　／　完了 ${md(c.doneAt)}`:''}</span>${manBtn()}</div>
+   <div class="dsec"><h5>トラブル報告 <small>破損・汚損・忘れ物など</small></h5>
+   ${TRS(c).map(t=>trHtml(t,x,false)+(t.resolved?'<div class="note">↑ オーナー対応済み</div>':'')).join('')||'<div class="note">報告はありません</div>'}
+   ${mine?`<button class="btn danger small" style="justify-self:start" data-act="trnew" data-id="${id}">トラブルを報告する</button>`:''}</div>
+   <div class="dsec"><h5>① 撮影チェック <small>${Object.keys(SH(c)).length}/${CHECKS.length}</small></h5>${canDo?'<div class="note">各場所を1枚ずつ撮ってください</div>':''}
+   <div class="shots">${CHECKS.map((k,i)=>{const p=SH(c)[k],rf=(prop(x.r.propertyId).refs||{})[k];return `<div class="shot ${p?'ok':''}">${p?`<img src="${p}" alt="${h(k)}">`:rf?`<span class="ph"><img src="${rf}" alt=""><b>見本</b></span>`:'<span class="ph">未撮影</span>'}<span class="sl">${k}</span>
+   ${canDo?`<label class="btn ${p?'ghost':''} small">${p?'撮り直す':'撮る'}<input type="file" id="ph-${i}" accept="image/*" capture="environment" data-act="photo" data-id="${id}" data-k="${h(k)}" hidden></label>`:''}</div>`}).join('')}</div>
+   </div>
+   <div class="dsec"><h5>② 最終チェック <small>${items(fl(P)).filter(k=>F[k]).length}/${items(fl(P)).length}</small></h5>
+   <div class="checks">${listHtml(fl(P),(k,hn,i)=>`<label><input type="checkbox" id="fc-${i}" data-act="final" data-id="${id}" data-k="${h(k)}" ${F[k]?'checked':''} ${canDo?'':'disabled'}>${h(k)}</label>`)}</div></div>
+   <div class="dsec"><h5>③ 在庫確認</h5>
+   ${Object.keys(P.low||{}).length?`<div class="note">オーナーに通知済み：${Object.keys(P.low).map(h).join('、')}</div>`:'<div class="note">少なくなっている物はありません</div>'}
+   ${mine?`<button class="btn ghost small" style="justify-self:start" data-act="stockdlg" data-id="${id}">在庫があと少しの物をチェック</button>`:''}</div>
+   <div class="row" style="justify-content:flex-end">
+   ${canDo?`<button class="btn ghost small" data-act="release" data-id="${id}">担当を外れる</button><button class="btn" data-act="done" data-id="${id}">完了を報告</button>`:''}
+   ${ME.role==='owner'&&c.doneAt?`<button class="btn ghost small" data-act="undone" data-id="${id}">完了を取り消す</button>`:''}
+   <button class="btn ghost small" data-act="close">閉じる</button></div>`);
+}
+function addResDlg(){
+  openDlg(`<h4>予約を手入力</h4>
+  <label>物件 <select id="nr-p">${S.properties.map(p=>`<option value="${p.id}">${h(p.name)}</option>`).join('')}</select></label>
+  <label>チェックイン <input type="date" id="nr-in" value="${add(TODAY,1)}"></label>
+  <label>泊数 <input type="number" id="nr-n" min="1" value="1" style="width:5em"></label>
+  <label>人数 <input type="number" id="nr-g" min="1" value="2" style="width:5em"></label>
+  <div class="row" style="justify-content:flex-end"><button class="btn ghost small" data-act="close">やめる</button><button class="btn" data-act="saveres">追加</button></div>`);
+}
+function stockDlg(id){
+  const P=prop(resOf(id).propertyId);
+  openDlg(`<h4>在庫があと少しの物</h4><p class="note">発注ラインになった物をタップしてください。オーナーに通知されます。</p>
+  <div class="checks">${listHtml(sl(P),(k,hn,i)=>{const lw=(P.low||{})[k];return `<label><input type="checkbox" id="st-${i}" data-act="stock" data-id="${P.id}" data-k="${h(k)}" data-c="${id}" ${lw?'checked':''}>${h(k)}${hn?` <span class="hint">発注ライン：${h(hn)}</span>`:''}${lw?' <span class="lowtag">通知済み</span>':''}</label>`})}</div>
+  <div class="row" style="justify-content:flex-end"><button class="btn" data-act="detail" data-id="${id}">完了</button></div>`);
+}
+let trTmp=[];
+function trDlg(id){
+  trTmp=[];
+  openDlg(`<h4>トラブルを報告</h4>
+  <label>種類 <select id="tr-type">${TRT.map(t=>`<option>${t}</option>`).join('')}</select></label>
+  <label class="note" for="tr-note">内容（忘れ物はどんな物か・どこにあったか）</label>
+  <textarea id="tr-note" style="font-family:var(--font-body);font-size:.95rem" placeholder="例：寝室のコンセントに白い充電器。玄関の棚に保管"></textarea>
+  <div class="thumbs" id="tr-th"></div>
+  <label class="btn ghost small" style="justify-self:start">写真を追加<input type="file" id="tr-ph" accept="image/*" multiple data-act="trph" hidden></label>
+  <div class="row" style="justify-content:flex-end"><button class="btn ghost small" data-act="detail" data-id="${id}">戻る</button><button class="btn danger" data-act="trsave" data-id="${id}">オーナーに報告</button></div>`);
+}
+function compress(file){return new Promise(res=>{const u=URL.createObjectURL(file);const im=new Image();
+  im.onload=()=>{const k=Math.min(1,1280/Math.max(im.width,im.height));const cv=document.createElement('canvas');cv.width=im.width*k;cv.height=im.height*k;
+    cv.getContext('2d').drawImage(im,0,0,cv.width,cv.height);URL.revokeObjectURL(u);res(cv.toDataURL('image/jpeg',.7))};
+  im.onerror=()=>res(null);im.src=u})}
+
+/* ---------- render & events ---------- */
+let tt;function toast(m){const t=$('#toast');t.textContent=m;t.hidden=false;clearTimeout(tt);tt=setTimeout(()=>t.hidden=true,3000)}
+function ownerSettings(){
+  return `<div class="sect"><h3>物件と予約カレンダー</h3>
+  <p class="note">Airbnb・Booking.com の「カレンダーをエクスポート（iCal）」のURLを貼ると、30分ごとに予約を自動で読み込みます。</p>
+  ${S.properties.map(p=>`<div class="card"><div class="row"><input type="text" id="pn-${p.id}" data-act="pname" data-id="${p.id}" value="${h(p.name)}" aria-label="物件名">
+   <button class="btn ghost small" data-act="delprop" data-id="${p.id}">削除</button></div>
+   <label class="note">AirbnbのiCal URL<input type="url" id="ia-${p.id}" data-act="ical" data-src="airbnb" data-id="${p.id}" value="${h(p.airbnb)}" placeholder="https://www.airbnb.jp/calendar/ical/…" style="width:100%;box-sizing:border-box"></label>
+   <label class="note">Booking.comのiCal URL<input type="url" id="ib-${p.id}" data-act="ical" data-src="booking" data-id="${p.id}" value="${h(p.booking)}" placeholder="https://ical.booking.com/v1/export?t=…" style="width:100%;box-sizing:border-box"></label>
+   <details class="refs" ${ui.openRefs===p.id?'open':''}><summary>撮影の見本（${Object.keys(p.refs||{}).length}/${CHECKS.length}）</summary>
+   <p class="note">ここに登録した写真が、スタッフの撮影枠に半透明で表示されます。</p>
+   <div class="shots">${CHECKS.map((k,i)=>{const rf=(p.refs||{})[k];return `<div class="shot ${rf?'ok':''}">${rf?`<img src="${rf}" alt="${h(k)}の見本">`:'<span class="ph">未登録</span>'}<span class="sl">${k}</span>
+   <label class="btn ${rf?'ghost':''} small">${rf?'変更':'見本を登録'}<input type="file" id="rf-${p.id}-${i}" accept="image/*" data-act="ref" data-id="${p.id}" data-k="${h(k)}" hidden></label></div>`}).join('')}</div></details>
+   <details class="refs"><summary>最終チェックリスト（${items(fl(p)).length}項目）</summary><p class="note">1行に1項目。【寝室】のように書くと見出しになります。全部チェックしないと完了報告できません。</p>
+   <textarea id="fl-${p.id}" data-act="flist" data-id="${p.id}">${h(fl(p).join('\n'))}</textarea></details>
+   <details class="refs"><summary>在庫確認リスト（${items(sl(p)).length}品目）</summary><p class="note">1行に1品目。「品名｜発注ライン」の形で書くと発注ラインも表示されます。【】で見出し。</p>
+   <textarea id="sl-${p.id}" data-act="slist" data-id="${p.id}">${h(sl(p).join('\n'))}</textarea></details></div>`).join('')}
+  <div class="row" style="justify-content:flex-start"><button class="btn ghost" data-act="addprop">物件を追加</button><button class="btn" data-act="syncnow">今すぐ予約を取り込む</button></div></div>
+  <div class="sect"><h3>清掃の単価</h3><label>1回 <input type="number" id="rate" data-act="rate" value="${rate()}" step="500" style="width:7em"> 円</label></div>
+  <div class="sect"><h3>清掃マニュアル</h3><p class="note">URLを入れると、スタッフ画面と清掃の画面に「清掃マニュアルを見る」ボタンが出ます。</p>
+  <input type="text" id="manual" data-act="manual" value="${h(man())}" style="width:100%;box-sizing:border-box" placeholder="https://…"></div>
+  <div class="sect"><h3>スタッフ</h3>
+  <p class="note">スタッフにこのページのURLを送って、「はじめて使う」から登録してもらってください。登録すると下に「承認待ち」で出ます。</p>
+  <div class="row" style="justify-content:flex-start"><code style="font-size:.85rem;word-break:break-all">${h(location.origin)}</code><button class="btn ghost small" data-act="copyurl">URLをコピー</button></div>
+  ${S.pending.map(s=>`<div class="card" style="border-color:var(--warn)"><div class="row"><span><b>${h(s.name)||'（名前なし）'}</b> <span class="pill open">承認待ち</span></span>
+   <span><button class="btn ghost small" data-act="reject" data-id="${s.id}">承認しない</button> <button class="btn small" data-act="approve" data-id="${s.id}">承認する</button></span></div></div>`).join('')}
+  ${S.staff.map(s=>`<div class="card"><div class="row"><input type="text" id="sn-${s.id}" data-act="sname" data-id="${s.id}" value="${h(s.name)}" aria-label="スタッフ名">
+   <button class="btn ghost small" data-act="delstaff" data-id="${s.id}">外す</button></div>
+   <div class="checks">${S.properties.map(p=>`<label><input type="checkbox" id="sp-${s.id}-${p.id}" data-act="sprop" data-id="${s.id}" data-p="${p.id}" ${s.props.includes(p.id)?'checked':''}>${h(p.name)}</label>`).join('')}</div></div>`).join('')||'<p class="note">まだスタッフはいません。</p>'}
+  </div>`;
+}
+async function saveCsv(){
+  const {m,rows}=monthCalc();
+  const blob=new Blob(['﻿'+csvOf(m,rows)],{type:'text/csv'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`cleaning-pay_${m}.csv`;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+}
+function render(){
+  if(!ME)return renderLogin();
+  $('#who').innerHTML=`${h(ME.name)}さん <button class="btn ghost small" data-act="logout">ログアウト</button>`;
+  if(!ME.active){$('#roles').hidden=true;$('#tabs').hidden=true;
+    $('#main').innerHTML=`<p class="empty">${ME.removed?'このアカウントは使えなくなっています。オーナーに確認してください。':'登録ありがとうございます。オーナーが承認すると使えるようになります。<br>承認されたら、このページを開き直してください。'}</p>`;return}
+  const owner=ME.role==='owner';
+  $('#roles').hidden=!owner;
+  $('#r-owner').setAttribute('aria-pressed',ui.role==='owner');$('#r-staff').setAttribute('aria-pressed',ui.role==='staff');
+  const sp=$('#staffPick');sp.hidden=!owner||ui.role!=='staff';sp.innerHTML=S.staff.map(s=>`<option value="${s.id}" ${s.id===ui.staff?'selected':''}>${h(s.name)}さんの画面</option>`).join('');
+  const tabs=[['clean','清掃予定'],['res','予約・人数'],['tally','支払い'],['set','設定']];
+  $('#tabs').hidden=ui.role!=='owner';
+  $('#tabs').innerHTML=tabs.map(([k,l])=>`<button role="tab" aria-selected="${ui.tab===k}" data-act="tab" data-v="${k}">${l}${k==='set'&&S.pending.length?` <span class="pill open">${S.pending.length}</span>`:''}</button>`).join('');
+  if(ui.role==='staff'&&!staff(ui.staff)){$('#main').innerHTML='<p class="empty">スタッフがまだ登録されていません。</p>';return}
+  $('#main').innerHTML=ui.role==='staff'?staffView():({clean:ownerClean,res:ownerRes,tally:ownerTally,set:ownerSettings}[ui.tab]||ownerClean)();
+}
+$('#staffPick').onchange=e=>{ui.staff=e.target.value;render()};
+const resOf=id=>S.reservations.find(x=>x.id===id);
+document.addEventListener('click',async e=>{
+  const el=e.target.closest('[data-act]');if(!el||el.tagName==='SELECT'||el.tagName==='INPUT'||el.tagName==='TEXTAREA')return;
+  const {act,id,v}=el.dataset;
+  if(act==='lmode')renderLogin(v);
+  else if(act==='logout'){await sb.auth.signOut()}
+  else if(act==='role'){ui.role=v;if(!staff(ui.staff))ui.staff=S.staff[0]?.id;render()}
+  else if(act==='tab'){ui.tab=v;saveUi();render()}
+  else if(act==='detail')detail(id);
+  else if(act==='close')dlg.close();
+  else if(act==='ack'){const c=C(id);c[c.doneAt?'snapD':'snapA']=snap(nextOf(resOf(id)));if(dlg.open)detail(id);render();if(await saveCleaning(id))toast('確認済みにしました')}
+  else if(act==='trnew')trDlg(id);
+  else if(act==='confirm'){const r=monthCalc().rows.find(x=>x.st.id===ME.id);S.confirms[cfKey(v,ME.id)]={at:TODAY,total:r.total};render();
+    if(await q(sb.from('confirms').upsert({month:v,staff_id:ME.id,at:TODAY,total:r.total})))toast('確認しました')}
+  else if(act==='csv')saveCsv();
+  else if(act==='mon'){ui.mOff=(ui.mOff||0)+(+v);render()}
+  else if(act==='addex'){const a=+$('#ex-a').value,d=$('#ex-d').value;if(!d||!a){toast('日付と金額を入れてください');return}
+    const {data,error}=await sb.from('extras').insert({date:d,staff_id:$('#ex-s').value,amount:a,note:$('#ex-n').value.trim()}).select().single();
+    if(error){toast('保存できませんでした');return}S.extras.push({id:data.id,date:data.date,staffId:data.staff_id,amount:data.amount,note:data.note||''});render();toast('追加清掃を記入しました')}
+  else if(act==='delex'){S.extras=S.extras.filter(x=>x.id!==id);render();q(sb.from('extras').delete().eq('id',id))}
+  else if(act==='stockdlg')stockDlg(id);
+  else if(act==='trsave'){const note=$('#tr-note').value.trim();if(!note&&!trTmp.length){toast('内容か写真を入れてください');return}
+    el.disabled=true;el.textContent='送信中…';
+    const photos=[];for(const d of trTmp){const u=await upload(d);if(u)photos.push(u)}
+    TRS(C(id)).push({id:uid(),type:$('#tr-type').value,note,photos,at:TODAY,by:ME.id,resolved:false});trTmp=[];
+    if(await saveCleaning(id)){render();detail(id);toast('オーナーに報告しました')}}
+  else if(act==='trdone'){const t=TRS(C(id)).find(t=>t.id===el.dataset.t);if(t)t.resolved=true;render();if(await saveCleaning(id))toast('対応済みにしました')}
+  else if(act==='refill'){const P=prop(id);delete P.low[el.dataset.k];render();if(await q(sb.from('stock_low').delete().eq('property_id',id).eq('item',el.dataset.k)))toast('補充済みにしました')}
+  else if(act==='take'){const c=C(id);c.staffId=ME.id;c.snapA=snap(nextOf(resOf(id)));render();
+    if(await saveCleaning(id,'ほかの人が先に担当になったか、通信できませんでした'))toast('担当になりました')}
+  else if(act==='release'){C(id).staffId='';dlg.close();render();if(await saveCleaning(id))toast('担当を外れました')}
+  else if(act==='done'){const c=C(id);const miss=CHECKS.filter(k=>!SH(c)[k]);if(miss.length){toast(`まだ撮っていない場所：${miss.join('、')}`);return}
+    const P=prop(resOf(id).propertyId);const fm=items(fl(P)).filter(k=>!(c.final||{})[k]);if(fm.length){toast(`最終チェックが残っています：${fm.slice(0,3).join('、')}${fm.length>3?` ほか${fm.length-3}件`:''}`);return}
+    c.doneAt=TODAY;c.snapD=snap(nextOf(resOf(id)));dlg.close();render();if(await saveCleaning(id))toast('完了を報告しました')}
+  else if(act==='undone'){C(id).doneAt=null;dlg.close();render();saveCleaning(id)}
+  else if(act==='syncnow')syncNow(true);
+  else if(act==='addres')addResDlg();
+  else if(act==='saveres'){const ci=$('#nr-in').value;if(!ci)return;
+    const r={id:'manual:'+crypto.randomUUID(),propertyId:$('#nr-p').value,source:'manual',checkin:ci,checkout:add(ci,Math.max(1,+$('#nr-n').value||1)),guests:+$('#nr-g').value||null,towelAdd:0};
+    S.reservations.push(r);dlg.close();render();
+    q(sb.from('reservations').insert({id:r.id,property_id:r.propertyId,source:'manual',checkin:r.checkin,checkout:r.checkout,guests:r.guests}))}
+  else if(act==='delres'){S.reservations=S.reservations.filter(r=>r.id!==id);render();q(sb.from('reservations').delete().eq('id',id))}
+  else if(act==='addprop'){const {data,error}=await sb.from('properties').insert({name:'新しい物件'}).select().single();
+    if(error){toast('追加できませんでした');return}await sb.from('property_secrets').insert({property_id:data.id});await loadAll();render()}
+  else if(act==='delprop'){if(!el.dataset.sure){el.dataset.sure=1;el.textContent='もう一度押すと予約・清掃記録も消えます';return}
+    S.properties=S.properties.filter(p=>p.id!==id);render();q(sb.from('properties').delete().eq('id',id))}
+  else if(act==='approve'){if(await q(sb.from('profiles').update({active:true,removed:false,props:S.properties.map(p=>p.id)}).eq('id',id))){await loadAll();render();toast('承認しました')}}
+  else if(act==='reject'){if(await q(sb.from('profiles').update({active:false,removed:true}).eq('id',id))){await loadAll();render()}}
+  else if(act==='delstaff'){if(!el.dataset.sure){el.dataset.sure=1;el.textContent='もう一度押すと外れます';return}
+    await q(sb.from('cleanings').update({staff_id:null}).eq('staff_id',id).is('done_at',null));
+    if(await q(sb.from('profiles').update({active:false,removed:true}).eq('id',id))){await loadAll();render();toast('スタッフから外しました')}}
+  else if(act==='copyurl'){navigator.clipboard?.writeText(location.origin).then(()=>toast('コピーしました'),()=>toast('コピーできませんでした'))}
+});
+document.addEventListener('change',async e=>{
+  const el=e.target;const {act,id}=el.dataset;
+  if(act==='assign'){const c=C(id);c.staffId=el.value;c.snapA=snap(nextOf(resOf(id)));render();if(await saveCleaning(id))toast(el.value?`${staff(el.value).name}さんに割り当てました`:'未担当に戻しました')}
+  else if(act==='guests'){const r=resOf(id);r.guests=+el.value||null;q(sb.from('reservations').update({guests:r.guests}).eq('id',id))}
+  else if(act==='towel'){const r=resOf(id);r.towelAdd=Math.max(0,+el.value||0);q(sb.from('reservations').update({towel_add:r.towelAdd}).eq('id',id))}
+  else if(act==='pname'){const P=prop(id);P.name=el.value.trim()||'物件';q(sb.from('properties').update({name:P.name}).eq('id',id))}
+  else if(act==='ical'){const P=prop(id),src=el.dataset.src;P[src]=el.value.trim();
+    if(await q(sb.from('property_secrets').upsert({property_id:id,[src+'_ical']:P[src]||null})))toast('保存しました。「今すぐ予約を取り込む」で読み込めます')}
+  else if(act==='sname'){const s=staff(id);s.name=el.value.trim()||'スタッフ';NAMES[id]=s.name;q(sb.from('profiles').update({name:s.name}).eq('id',id))}
+  else if(act==='sprop'){const s=staff(id);s.props=el.checked?[...new Set([...s.props,el.dataset.p])]:s.props.filter(p=>p!==el.dataset.p);q(sb.from('profiles').update({props:s.props}).eq('id',id))}
+  else if(act==='final'){const c=C(id);(c.final||(c.final={}))[el.dataset.k]=el.checked;saveCleaning(id)}
+  else if(act==='stock'){const P=prop(id),k=el.dataset.k;P.low=P.low||{};
+    if(el.checked){P.low[k]={by:ME.id,at:TODAY};stockDlg(el.dataset.c);if(await q(sb.from('stock_low').upsert({property_id:id,item:k,by:ME.id,at:TODAY})))toast('オーナーに通知しました')}
+    else{delete P.low[k];stockDlg(el.dataset.c);q(sb.from('stock_low').delete().eq('property_id',id).eq('item',k))}}
+  else if(act==='trph'){for(const f of el.files){const d=await compress(f);if(d)trTmp.push(d)}$('#tr-th').innerHTML=trTmp.map(p=>`<img src="${p}" alt="">`).join('')}
+  else if(act==='rate'){S.rate=Math.max(0,+el.value||0);q(sb.from('settings').update({rate:S.rate}).eq('id',1))}
+  else if(act==='manual'){S.manualUrl=el.value.trim();q(sb.from('settings').update({manual_url:S.manualUrl}).eq('id',1))}
+  else if(act==='flist'||act==='slist'){const P=prop(id);const v=el.value.split('\n').map(t=>t.trim()).filter(Boolean);
+    P[act==='flist'?'finalList':'stockList']=v;q(sb.from('properties').update({[act==='flist'?'final_list':'stock_list']:v}).eq('id',id))}
+  else if(act==='ref'){const f=el.files[0];if(!f)return;toast('アップロード中…');const d=await compress(f);const u=d&&await upload(d);
+    if(u){const p=prop(id);(p.refs||(p.refs={}))[el.dataset.k]=u;ui.openRefs=id;render();if(await q(sb.from('properties').update({refs:p.refs}).eq('id',id)))toast('見本を登録しました')}}
+  else if(act==='photo'){const f=el.files[0];if(!f)return;toast('アップロード中…');const d=await compress(f);const u=d&&await upload(d);
+    if(u){SH(C(id))[el.dataset.k]=u;detail(id);if(await saveCleaning(id))toast('保存しました')}}
+});
+boot();
+
+</script>
+</body></html>
