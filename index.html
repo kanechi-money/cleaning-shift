@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=Zen+Maru+Gothic:wght@700&family=IBM+Plex+Mono:wght@500&display=swap">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>
 <style>
-body{margin:0;font-size:14px}img{max-width:100%}[hidden]{display:none!important}
+body{margin:0;font-size:14px}#authf label{display:grid;gap:4px}img{max-width:100%}[hidden]{display:none!important}
 
 /* Layout: one narrow column, phone-first; sticky role bar; day-grouped cleaning cards like a housekeeping roster */
 :root{
@@ -141,7 +141,8 @@ const items=L=>L.filter(l=>!isH(l)).map(nm);
 function listHtml(L,fn){let i=0;return L.map(l=>isH(l)?`<div class="lh">${h(l.slice(1,-1))}</div>`:fn(nm(l),(l.split('｜')[1]||'').trim(),i++)).join('')}
 const fl=p=>p.finalList||FINAL, sl=p=>p.stockList||STOCK;
 const TRS=c=>c.troubles||(c.troubles=[]);
-const CHECKS=['ベッドメイク・タオル','備品（プロジェクターなど）','アメニティ','冷蔵庫の中','キッチン全体','キッチンのシンク・蛇口','お風呂場全体','お風呂場の蛇口','洗面台・鏡','リビング全体'];
+const SHOTS=['ベッドメイク・タオル','押入れ（布団）','備品（プロジェクターなど）','アメニティ','冷蔵庫の中','キッチン全体','キッチンのシンク・蛇口','ゴミ箱（キッチン）','お風呂場全体','お風呂場の蛇口','お風呂の排水溝','洗面台・鏡','トイレ全体','リビング全体','ラック','テーブルセッティング','ゴミ箱（リビング）'];
+const pl=p=>(p&&p.shotList&&p.shotList.length)?p.shotList:SHOTS;
 const SH=c=>c.shots||(c.shots={});
 const WD='日月火水木金土';
 const $=s=>document.querySelector(s);
@@ -180,7 +181,7 @@ async function loadAll(){
   ME=(pf||[]).find(p=>p.id===user?.id)||null;
   S.rate=st?.rate??3000;S.manualUrl=st?.manual_url||'';
   const secBy=Object.fromEntries((sec||[]).map(s=>[s.property_id,s]));
-  S.properties=(pr||[]).map(p=>({id:p.id,name:p.name,finalList:p.final_list||null,stockList:p.stock_list||null,refs:p.refs||{},low:{},
+  S.properties=(pr||[]).map(p=>({id:p.id,name:p.name,finalList:p.final_list||null,shotList:p.shot_list||null,stockList:p.stock_list||null,refs:p.refs||{},low:{},
     airbnb:secBy[p.id]?.airbnb_ical||'',booking:secBy[p.id]?.booking_ical||''}));
   (lw||[]).forEach(l=>{const P=S.properties.find(p=>p.id===l.property_id);if(P)P.low[l.item]={by:l.by,at:l.at}});
   S.staff=(pf||[]).filter(p=>p.role==='staff'&&p.active).map(p=>({id:p.id,name:p.name,props:p.props||[]}));
@@ -324,7 +325,7 @@ function ownerClean(){
     const tr=(x.c.troubles||[]).filter(t=>!t.resolved).length;
     return `<div class="card">${cardHead(x)}${facts(x)}${tr?`<div class="flag red"><span>トラブル報告 ${tr}件</span></div>`:''}<div class="row">
       <label class="note">担当 <select id="as-${x.r.id}" data-act="assign" data-id="${x.r.id}"><option value="">未担当</option>${opts}</select></label>
-      <button class="btn ghost small" data-act="detail" data-id="${x.r.id}">${x.c.doneAt?`報告を見る（写真${Object.keys(x.c.shots||{}).length}/${CHECKS.length}）`:'詳細'}</button></div></div>`;
+      <button class="btn ghost small" data-act="detail" data-id="${x.r.id}">${x.c.doneAt?`報告を見る（写真${pl(prop(x.r.propertyId)).filter(k=>(x.c.shots||{})[k]).length}/${pl(prop(x.r.propertyId)).length}）`:'詳細'}</button></div></div>`;
   })||`<p class="empty">清掃予定はまだありません。<br>「設定」で予約カレンダーを取り込むと、チェックアウト日に清掃が入ります。</p>`);
 }
 function trHtml(t,x,owner){
@@ -421,8 +422,8 @@ function detail(id){
    <div class="dsec"><h5>トラブル報告 <small>破損・汚損・忘れ物など</small></h5>
    ${TRS(c).map(t=>trHtml(t,x,false)+(t.resolved?'<div class="note">↑ オーナー対応済み</div>':'')).join('')||'<div class="note">報告はありません</div>'}
    ${mine?`<button class="btn danger small" style="justify-self:start" data-act="trnew" data-id="${id}">トラブルを報告する</button>`:''}</div>
-   <div class="dsec"><h5>① 撮影チェック <small>${Object.keys(SH(c)).length}/${CHECKS.length}</small></h5>${canDo?'<div class="note">各場所を1枚ずつ撮ってください</div>':''}
-   <div class="shots">${CHECKS.map((k,i)=>{const p=SH(c)[k],rf=(prop(x.r.propertyId).refs||{})[k];return `<div class="shot ${p?'ok':''}">${p?`<img src="${p}" alt="${h(k)}">`:rf?`<span class="ph"><img src="${rf}" alt=""><b>見本</b></span>`:'<span class="ph">未撮影</span>'}<span class="sl">${k}</span>
+   <div class="dsec"><h5>① 撮影チェック <small>${pl(P).filter(k=>SH(c)[k]).length}/${pl(P).length}</small></h5>${canDo?'<div class="note">各場所を1枚ずつ撮ってください</div>':''}
+   <div class="shots">${pl(P).map((k,i)=>{const p=SH(c)[k],rf=(prop(x.r.propertyId).refs||{})[k];return `<div class="shot ${p?'ok':''}">${p?`<img src="${p}" alt="${h(k)}">`:rf?`<span class="ph"><img src="${rf}" alt=""><b>見本</b></span>`:'<span class="ph">未撮影</span>'}<span class="sl">${k}</span>
    ${canDo?`<label class="btn ${p?'ghost':''} small">${p?'撮り直す':'撮る'}<input type="file" id="ph-${i}" accept="image/*" capture="environment" data-act="photo" data-id="${id}" data-k="${h(k)}" hidden></label>`:''}</div>`}).join('')}</div>
    </div>
    <div class="dsec"><h5>② 最終チェック <small>${items(fl(P)).filter(k=>F[k]).length}/${items(fl(P)).length}</small></h5>
@@ -474,9 +475,10 @@ function ownerSettings(){
    <button class="btn ghost small" data-act="delprop" data-id="${p.id}">削除</button></div>
    <label class="note">AirbnbのiCal URL<input type="url" id="ia-${p.id}" data-act="ical" data-src="airbnb" data-id="${p.id}" value="${h(p.airbnb)}" placeholder="https://www.airbnb.jp/calendar/ical/…" style="width:100%;box-sizing:border-box"></label>
    <label class="note">Booking.comのiCal URL<input type="url" id="ib-${p.id}" data-act="ical" data-src="booking" data-id="${p.id}" value="${h(p.booking)}" placeholder="https://ical.booking.com/v1/export?t=…" style="width:100%;box-sizing:border-box"></label>
-   <details class="refs" ${ui.openRefs===p.id?'open':''}><summary>撮影の見本（${Object.keys(p.refs||{}).length}/${CHECKS.length}）</summary>
-   <p class="note">ここに登録した写真が、スタッフの撮影枠に半透明で表示されます。</p>
-   <div class="shots">${CHECKS.map((k,i)=>{const rf=(p.refs||{})[k];return `<div class="shot ${rf?'ok':''}">${rf?`<img src="${rf}" alt="${h(k)}の見本">`:'<span class="ph">未登録</span>'}<span class="sl">${k}</span>
+   <details class="refs" ${ui.openRefs===p.id?'open':''}><summary>撮影場所と見本（${pl(p).length}か所）</summary>
+   <p class="note">撮影場所は下の欄で1行に1か所ずつ変えられます。見本を登録すると、スタッフの撮影枠に半透明で表示されます。</p>
+   <textarea id="sh-${p.id}" data-act="shlist" data-id="${p.id}" style="min-height:90px">${h(pl(p).join('\n'))}</textarea>
+   <div class="shots">${pl(p).map((k,i)=>{const rf=(p.refs||{})[k];return `<div class="shot ${rf?'ok':''}">${rf?`<img src="${rf}" alt="${h(k)}の見本">`:'<span class="ph">未登録</span>'}<span class="sl">${k}</span>
    <label class="btn ${rf?'ghost':''} small">${rf?'変更':'見本を登録'}<input type="file" id="rf-${p.id}-${i}" accept="image/*" data-act="ref" data-id="${p.id}" data-k="${h(k)}" hidden></label></div>`}).join('')}</div></details>
    <details class="refs"><summary>最終チェックリスト（${items(fl(p)).length}項目）</summary><p class="note">1行に1項目。【寝室】のように書くと見出しになります。全部チェックしないと完了報告できません。</p>
    <textarea id="fl-${p.id}" data-act="flist" data-id="${p.id}">${h(fl(p).join('\n'))}</textarea></details>
@@ -549,8 +551,8 @@ document.addEventListener('click',async e=>{
   else if(act==='take'){const c=C(id);c.staffId=ME.id;c.snapA=snap(nextOf(resOf(id)));render();
     if(await saveCleaning(id,'ほかの人が先に担当になったか、通信できませんでした'))toast('担当になりました')}
   else if(act==='release'){C(id).staffId='';dlg.close();render();if(await saveCleaning(id))toast('担当を外れました')}
-  else if(act==='done'){const c=C(id);const miss=CHECKS.filter(k=>!SH(c)[k]);if(miss.length){toast(`まだ撮っていない場所：${miss.join('、')}`);return}
-    const P=prop(resOf(id).propertyId);const fm=items(fl(P)).filter(k=>!(c.final||{})[k]);if(fm.length){toast(`最終チェックが残っています：${fm.slice(0,3).join('、')}${fm.length>3?` ほか${fm.length-3}件`:''}`);return}
+  else if(act==='done'){const c=C(id);const P=prop(resOf(id).propertyId);const miss=pl(P).filter(k=>!SH(c)[k]);if(miss.length){toast(`まだ撮っていない場所：${miss.join('、')}`);return}
+    const fm=items(fl(P)).filter(k=>!(c.final||{})[k]);if(fm.length){toast(`最終チェックが残っています：${fm.slice(0,3).join('、')}${fm.length>3?` ほか${fm.length-3}件`:''}`);return}
     c.doneAt=TODAY;c.snapD=snap(nextOf(resOf(id)));dlg.close();render();if(await saveCleaning(id))toast('完了を報告しました')}
   else if(act==='undone'){C(id).doneAt=null;dlg.close();render();saveCleaning(id)}
   else if(act==='syncnow')syncNow(true);
@@ -588,8 +590,9 @@ document.addEventListener('change',async e=>{
   else if(act==='trph'){for(const f of el.files){const d=await compress(f);if(d)trTmp.push(d)}$('#tr-th').innerHTML=trTmp.map(p=>`<img src="${p}" alt="">`).join('')}
   else if(act==='rate'){S.rate=Math.max(0,+el.value||0);q(sb.from('settings').update({rate:S.rate}).eq('id',1))}
   else if(act==='manual'){S.manualUrl=el.value.trim();q(sb.from('settings').update({manual_url:S.manualUrl}).eq('id',1))}
-  else if(act==='flist'||act==='slist'){const P=prop(id);const v=el.value.split('\n').map(t=>t.trim()).filter(Boolean);
-    P[act==='flist'?'finalList':'stockList']=v;q(sb.from('properties').update({[act==='flist'?'final_list':'stock_list']:v}).eq('id',id))}
+  else if(act==='flist'||act==='slist'||act==='shlist'){const P=prop(id);const v=el.value.split('\n').map(t=>t.trim()).filter(Boolean);
+    const [key,col]={flist:['finalList','final_list'],slist:['stockList','stock_list'],shlist:['shotList','shot_list']}[act];
+    P[key]=v;await q(sb.from('properties').update({[col]:v}).eq('id',id));if(act==='shlist'){ui.openRefs=id;render()}}
   else if(act==='ref'){const f=el.files[0];if(!f)return;toast('アップロード中…');const d=await compress(f);const u=d&&await upload(d);
     if(u){const p=prop(id);(p.refs||(p.refs={}))[el.dataset.k]=u;ui.openRefs=id;render();if(await q(sb.from('properties').update({refs:p.refs}).eq('id',id)))toast('見本を登録しました')}}
   else if(act==='photo'){const f=el.files[0];if(!f)return;toast('アップロード中…');const d=await compress(f);const u=d&&await upload(d);
