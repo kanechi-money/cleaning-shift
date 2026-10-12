@@ -322,17 +322,20 @@ function grouped(list,fn){
 
 /* ---------- owner ---------- */
 function ownerClean(){
-  const list=cleanings().filter(x=>x.date>=add(TODAY,-3)&&x.date<=add(TODAY,45));
+  let ocard;const all0=cleanings().filter(x=>x.date<=add(TODAY,45));
+  const isOpen=x=>!x.c.doneAt||flag(x)||(x.c.troubles||[]).some(t=>!t.resolved);
+  const list=all0.filter(x=>x.date>=add(TODAY,-7)&&isOpen(x));
+  const hist=all0.filter(x=>x.c.doneAt&&!isOpen(x)&&x.date>=add(TODAY,-60)).reverse();
   const up=list.filter(x=>x.date>=TODAY);
   const open=up.filter(x=>x.status==='open').length, wk=up.filter(x=>x.date<=add(TODAY,7)).length;
   return alertsHtml()+`<div class="summary"><span><b>${wk}</b>件 今後7日の清掃</span><span class="${open?'alert':''}"><b>${open}</b>件 未担当</span><span class="${list.some(flag)?'alert':''}"><b>${list.filter(flag).length}</b>件 予約変更あり</span></div>`+
-  (grouped(list,x=>{
+  (grouped(list,ocard=x=>{
     const opts=S.staff.filter(s=>s.props.includes(x.r.propertyId)).map(s=>`<option value="${s.id}" ${x.c.staffId===s.id?'selected':''}>${h(s.name)}</option>`).join('');
     const tr=(x.c.troubles||[]).filter(t=>!t.resolved).length;
     return `<div class="card">${cardHead(x)}${facts(x)}${tr?`<div class="flag red"><span>トラブル報告 ${tr}件</span></div>`:''}<div class="row">
       <label class="note">担当 <select id="as-${x.r.id}" data-act="assign" data-id="${x.r.id}"><option value="">未担当</option>${opts}</select></label>
       <button class="btn ghost small" data-act="detail" data-id="${x.r.id}">${x.c.doneAt?`報告を見る（写真${pl(prop(x.r.propertyId)).filter(k=>(x.c.shots||{})[k]).length}/${pl(prop(x.r.propertyId)).length}）`:'詳細'}</button></div></div>`;
-  })||`<p class="empty">清掃予定はまだありません。<br>「設定」で予約カレンダーを取り込むと、チェックアウト日に清掃が入ります。</p>`);
+  })||`<p class="empty">清掃予定はまだありません。<br>「設定」で予約カレンダーを取り込むと、チェックアウト日に清掃が入ります。</p>`)+(hist.length?`<details class="refs" style="margin-top:16px"><summary>完了した清掃の履歴（直近60日・${hist.length}件）</summary>${grouped(hist,ocard)}</details>`:'');
 }
 function trHtml(t,x,owner){
   const st={name:nameOf(t.by)};
@@ -408,11 +411,14 @@ function ownerTally(){
 function staffView(){
   const me=staff(ui.staff);if(!me)return '<p class="empty">スタッフが登録されていません。</p>';
   const all=cleanings();
-  const mine=all.filter(x=>x.c.staffId===me.id&&(x.date>=TODAY||!x.c.doneAt||x.date>=add(TODAY,-3)||flag(x)));
+  const mineAll=all.filter(x=>x.c.staffId===me.id);
+  const mine=mineAll.filter(x=>!x.c.doneAt||flag(x));
+  const hist=mineAll.filter(x=>x.c.doneAt&&!flag(x)).reverse();
+  const left=mine.filter(x=>x.date.startsWith(TODAY.slice(0,7))).length;
   const open=all.filter(x=>x.status==='open'&&x.date>=TODAY&&me.props.includes(x.r.propertyId));
   const card=(x,btn)=>`<div class="card ${btn?'':'tap'}" ${btn?'':`data-act="detail" data-id="${x.r.id}"`}>${cardHead(x)}${facts(x)}${btn?`<div class="row" style="justify-content:flex-end"><button class="btn small" data-act="take" data-id="${x.r.id}">この清掃に入る</button></div>`:''}</div>`;
   return `<div class="row" style="margin-top:16px"><p class="note" style="margin:0">${h(me.name)}さんの画面です。ほかのスタッフの担当は表示されません。</p>${manBtn()}</div>
-  <div class="sect"><h3>あなたの担当</h3>${grouped(mine,x=>card(x))||'<p class="empty">担当はまだありません。下の「募集中」から入れます。</p>'}</div>
+  <div class="sect"><h3>あなたの担当 <small class="note">今月の残り ${left}件</small></h3>${grouped(mine,x=>card(x))||'<p class="empty">これからの担当はありません。下の「募集中」から入れます。</p>'}${hist.length?`<details class="refs" style="margin-top:12px"><summary>完了した清掃の履歴（${hist.length}件）</summary>${grouped(hist,x=>card(x))}</details>`:''}</div>
   <div class="sect"><h3>募集中の清掃</h3>${grouped(open,x=>card(x,true))||'<p class="empty">募集中の清掃はありません。</p>'}</div>${staffPay(me)}`;
 }
 
