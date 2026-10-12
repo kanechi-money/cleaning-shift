@@ -176,9 +176,10 @@ async function loadAll(){
     sb.from('cleanings').select('*'),
     sb.from('stock_low').select('*'),
     sb.from('extras').select('*'),
-    sb.from('confirms').select('*')]);
+    sb.from('confirms').select('*'),
+    sb.rpc('taken_cleanings')]);
   const bad=r.find(x=>x.error);if(bad){console.error(bad.error);toast('データを読み込めませんでした。通信を確認してください');return false}
-  const [st,pr,sec,pf,rs,cl,lw,ex,cf]=r.map(x=>x.data);
+  const [st,pr,sec,pf,rs,cl,lw,ex,cf,tk]=r.map(x=>x.data);
   const {data:{user}}=await sb.auth.getUser();
   NAMES=Object.fromEntries((pf||[]).map(p=>[p.id,p.name]));
   ME=(pf||[]).find(p=>p.id===user?.id)||null;
@@ -191,6 +192,7 @@ async function loadAll(){
   S.pending=(pf||[]).filter(p=>p.role==='staff'&&!p.active&&!p.removed).map(p=>({id:p.id,name:p.name}));
   S.reservations=(rs||[]).map(r=>({id:r.id,propertyId:r.property_id,source:r.source,checkin:r.checkin,checkout:r.checkout,guests:r.guests,towelAdd:r.towel_add||0}));
   S.cleanings={};(cl||[]).forEach(c=>{S.cleanings[c.reservation_id]={...(c.data||{}),staffId:c.staff_id||'',doneAt:c.done_at||null}});
+  (tk||[]).forEach(t=>{const id=typeof t==='string'?t:t.taken_cleanings;if(id&&!S.cleanings[id])S.cleanings[id]={staffId:'other',doneAt:null}});
   S.extras=(ex||[]).map(e=>({id:e.id,date:e.date,staffId:e.staff_id,amount:e.amount,note:e.note||''}));
   S.confirms={};(cf||[]).forEach(c=>{S.confirms[c.month+':'+c.staff_id]={at:c.at,total:c.total}});
   return true;
