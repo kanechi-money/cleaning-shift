@@ -98,6 +98,8 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid 
 .btn.danger{background:var(--danger);color:#fff}
 .lh{font-weight:700;font-size:.85rem;color:var(--accent);margin-top:8px;border-bottom:1px solid var(--line);padding-bottom:2px}
 .hint{font-size:.72rem;color:var(--muted)}
+.req{font-size:.7rem;font-weight:700;color:var(--danger);background:var(--danger-soft);padding:1px 8px;border-radius:99px}
+.opt{font-size:.7rem;font-weight:700;color:var(--muted);border:1px solid var(--line);padding:0 7px;border-radius:99px}
 .lowtag{font-size:.72rem;color:var(--warn);font-weight:700}
 details.refs summary{cursor:pointer;color:var(--accent);font-weight:700;font-size:.9rem}
 details.refs .shots{margin-top:8px}
@@ -414,26 +416,29 @@ function staffView(){
 /* ---------- dialogs ---------- */
 const dlg=$('#dlg');
 function openDlg(html){$('#dlgBody').innerHTML=html;try{dlg.showModal()}catch(e){dlg.setAttribute('open','')}}
+function progHtml(c,P){const F=c.final||{};const ms=pl(P).filter(k=>!SH(c)[k]).length,mf=items(fl(P)).filter(k=>!F[k]).length;
+  return ms||mf?`<div class="flag amber"><span>完了報告まであと：${ms?`写真 ${ms}か所`:''}${ms&&mf?'・':''}${mf?`最終チェック ${mf}項目`:''}</span></div>`:`<div class="flag" style="background:var(--ok-soft);color:var(--ok)"><span>必須はすべて終わりました。「完了を報告」を押してください</span></div>`}
+function updProg(id){const e=$('#prog');if(!e)return;e.innerHTML=progHtml(C(id),prop(resOf(id).propertyId))}
 function detail(id){
   const x=cleanings().find(c=>c.r.id===id);if(!x)return;const c=C(id);const st=staff(c.staffId);
   const canDo=ME.role==='staff'&&c.staffId===ME.id&&!c.doneAt;
   const mine=ME.role==='staff'&&c.staffId===ME.id;const P=prop(x.r.propertyId);const F=c.final||{};
   openDlg(`<h4>${h(prop(x.r.propertyId).name)}　${md(x.date)}</h4>${facts(x)}
    <div class="row"><span class="note">担当：${st?h(st.name):'未担当'}${c.doneAt?`　／　完了 ${md(c.doneAt)}`:''}</span>${manBtn()}</div>
-   <div class="dsec"><h5>トラブル報告 <small>破損・汚損・忘れ物など</small></h5>
+   <div class="dsec"><h5>トラブル報告 <small><span class="opt">任意</span> 破損・汚損・忘れ物があれば</small></h5>
    ${TRS(c).map(t=>trHtml(t,x,false)+(t.resolved?'<div class="note">↑ オーナー対応済み</div>':'')).join('')||'<div class="note">報告はありません</div>'}
    ${mine?`<button class="btn danger small" style="justify-self:start" data-act="trnew" data-id="${id}">トラブルを報告する</button>`:''}</div>
-   <div class="dsec"><h5>① 撮影チェック <small>${pl(P).filter(k=>SH(c)[k]).length}/${pl(P).length}</small></h5>${canDo?'<div class="note">各場所を1枚ずつ撮ってください</div>':''}
+   <div class="dsec"><h5>① 撮影チェック <span class="req">必須・全部</span> <small>${pl(P).filter(k=>SH(c)[k]).length}/${pl(P).length}</small></h5>${canDo?'<div class="note">各場所を1枚ずつ撮ってください</div>':''}
    <div class="shots">${pl(P).map((k,i)=>{const p=SH(c)[k],rf=(prop(x.r.propertyId).refs||{})[k];return `<div class="shot ${p?'ok':''}">${p?`<img src="${p}" alt="${h(k)}">`:rf?`<span class="ph"><img src="${rf}" alt=""><b>見本</b></span>`:'<span class="ph">未撮影</span>'}<span class="sl">${k}</span>
    ${canDo?`<label class="btn ${p?'ghost':''} small">${p?'撮り直す':'撮る'}<input type="file" id="ph-${i}" accept="image/*" capture="environment" data-act="photo" data-id="${id}" data-k="${h(k)}" hidden></label>`:''}</div>`}).join('')}</div>
    </div>
-   <div class="dsec"><h5>② 最終チェック <small>${items(fl(P)).filter(k=>F[k]).length}/${items(fl(P)).length}</small></h5>
+   <div class="dsec"><h5>② 最終チェック <span class="req">必須・全部</span> <small>${items(fl(P)).filter(k=>F[k]).length}/${items(fl(P)).length}</small></h5>
    <div class="checks">${listHtml(fl(P),(k,hn,i)=>`<label><input type="checkbox" id="fc-${i}" data-act="final" data-id="${id}" data-k="${h(k)}" ${F[k]?'checked':''} ${canDo?'':'disabled'}>${h(k)}</label>`)}</div></div>
-   <div class="dsec"><h5>③ 在庫確認</h5>
+   <div class="dsec"><h5>③ 在庫確認 <span class="opt">任意</span></h5>
    ${Object.keys(P.low||{}).length?`<div class="note">オーナーに通知済み：${Object.keys(P.low).map(h).join('、')}</div>`:'<div class="note">少なくなっている物はありません</div>'}
    ${mine?`<button class="btn ghost small" style="justify-self:start" data-act="stockdlg" data-id="${id}">在庫があと少しの物をチェック</button>`:''}</div>
    <div class="row" style="justify-content:flex-end">
-   ${canDo?`<button class="btn ghost small" data-act="release" data-id="${id}">担当を外れる</button><button class="btn" data-act="done" data-id="${id}">完了を報告</button>`:''}
+   ${canDo?`<div id="prog" style="width:100%">${progHtml(c,P)}</div>`:''}${canDo?`<button class="btn ghost small" data-act="release" data-id="${id}">担当を外れる</button><button class="btn" data-act="done" data-id="${id}">完了を報告</button>`:''}
    ${ME.role==='owner'&&c.doneAt?`<button class="btn ghost small" data-act="undone" data-id="${id}">完了を取り消す</button>`:''}
    <button class="btn ghost small" data-act="close">閉じる</button></div>`);
 }
@@ -468,7 +473,7 @@ function compress(file){return new Promise(res=>{const u=URL.createObjectURL(fil
   im.onerror=()=>res(null);im.src=u})}
 
 /* ---------- render & events ---------- */
-let tt;function toast(m){const t=$('#toast');t.textContent=m;t.hidden=false;clearTimeout(tt);tt=setTimeout(()=>t.hidden=true,3000)}
+let tt;function toast(m){const t=$('#toast');(dlg.open?dlg:document.body).appendChild(t);t.textContent=m;t.hidden=false;clearTimeout(tt);tt=setTimeout(()=>t.hidden=true,3000)}
 function ownerSettings(){
   return `<div class="sect"><h3>物件と予約カレンダー</h3>
   <p class="note">Airbnb・Booking.com の「カレンダーをエクスポート（iCal）」のURLを貼ると、30分ごとに予約を自動で読み込みます。</p>
@@ -552,7 +557,7 @@ document.addEventListener('click',async e=>{
   else if(act==='take'){const c=C(id);c.staffId=ME.id;c.snapA=snap(nextOf(resOf(id)));render();
     if(await saveCleaning(id,'ほかの人が先に担当になったか、通信できませんでした'))toast('担当になりました')}
   else if(act==='release'){C(id).staffId='';dlg.close();render();if(await saveCleaning(id))toast('担当を外れました')}
-  else if(act==='done'){const c=C(id);const P=prop(resOf(id).propertyId);const miss=pl(P).filter(k=>!SH(c)[k]);if(miss.length){toast(`まだ撮っていない場所：${miss.join('、')}`);return}
+  else if(act==='done'){const c=C(id);const P=prop(resOf(id).propertyId);const miss=pl(P).filter(k=>!SH(c)[k]);if(miss.length){toast(`まだ撮っていない場所：${miss.slice(0,3).join('、')}${miss.length>3?` ほか${miss.length-3}か所`:''}`);return}
     const fm=items(fl(P)).filter(k=>!(c.final||{})[k]);if(fm.length){toast(`最終チェックが残っています：${fm.slice(0,3).join('、')}${fm.length>3?` ほか${fm.length-3}件`:''}`);return}
     c.doneAt=TODAY;c.snapD=snap(nextOf(resOf(id)));dlg.close();render();if(await saveCleaning(id))toast('完了を報告しました')}
   else if(act==='undone'){C(id).doneAt=null;dlg.close();render();saveCleaning(id)}
@@ -584,7 +589,7 @@ document.addEventListener('change',async e=>{
     if(await q(sb.from('property_secrets').upsert({property_id:id,[src+'_ical']:P[src]||null})))toast('保存しました。「今すぐ予約を取り込む」で読み込めます')}
   else if(act==='sname'){const s=staff(id);s.name=el.value.trim()||'スタッフ';NAMES[id]=s.name;q(sb.from('profiles').update({name:s.name}).eq('id',id))}
   else if(act==='sprop'){const s=staff(id);s.props=el.checked?[...new Set([...s.props,el.dataset.p])]:s.props.filter(p=>p!==el.dataset.p);q(sb.from('profiles').update({props:s.props}).eq('id',id))}
-  else if(act==='final'){const c=C(id);(c.final||(c.final={}))[el.dataset.k]=el.checked;saveCleaning(id)}
+  else if(act==='final'){const c=C(id);(c.final||(c.final={}))[el.dataset.k]=el.checked;updProg(id);saveCleaning(id)}
   else if(act==='stock'){const P=prop(id),k=el.dataset.k;P.low=P.low||{};
     if(el.checked){P.low[k]={by:ME.id,at:TODAY};stockDlg(el.dataset.c);if(await q(sb.from('stock_low').upsert({property_id:id,item:k,by:ME.id,at:TODAY})))toast('オーナーに通知しました')}
     else{delete P.low[k];stockDlg(el.dataset.c);q(sb.from('stock_low').delete().eq('property_id',id).eq('item',k))}}
