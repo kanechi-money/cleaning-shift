@@ -272,13 +272,14 @@ const C=id=>S.cleanings[id]||(S.cleanings[id]={staffId:'',checks:{},photos:[],do
 const nextOf=r=>S.reservations.filter(x=>x.propertyId===r.propertyId&&x.id!==r.id&&x.checkin>=r.checkout).sort((a,b)=>a.checkin<b.checkin?-1:1)[0];
 const snap=n=>n?{id:n.id,checkin:n.checkin,guests:n.guests??null,nights:diff(n.checkin,n.checkout)}:null;
 const desc=s=>s?`${md(s.checkin)}IN ${s.guests??'?'}名・${s.nights}泊`:'予約なし';
+const sameSnap=(a,b)=>(!a&&!b)||(!!a&&!!b&&a.id===b.id&&a.checkin===b.checkin&&(a.guests??null)===(b.guests??null)&&a.nights===b.nights);
 function flag(x){
   const c=x.c,cur=snap(x.next);
   if(c.doneAt){const s=c.snapD;if(s===undefined||!cur||cur.checkin<TODAY)return null;
     const more=(cur.guests||0)-(s?.guests||0);
     if(s&&s.id===cur.id&&cur.checkin>=s.checkin&&more<=0)return null;
     return {lv:'red',msg:`⚠ 清掃後に予約が変わりました<br>清掃時：${desc(s)} → 今：${desc(cur)}<br>${more>0?`<b>寝具・アメニティを${more}名分追加</b>してください`:'準備内容を確認してください'}`,ack:'追加準備しました'}}
-  if(c.staffId){const s=c.snapA;if(s===undefined||JSON.stringify(s)===JSON.stringify(cur))return null;
+  if(c.staffId){const s=c.snapA;if(s===undefined||sameSnap(s,cur))return null;
     return {lv:'amber',msg:`担当決定後に次の予約が変わりました<br>前：${desc(s)} → 今：${desc(cur)}`,ack:'確認しました'}}
   return null;
 }
