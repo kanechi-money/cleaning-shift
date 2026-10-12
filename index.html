@@ -108,6 +108,7 @@ details.refs .shots{margin-top:8px}
 dialog{border:0;border-radius:16px;padding:0;width:min(560px,calc(100vw - 32px));background:var(--surface);color:var(--ink)}
 dialog::backdrop{background:rgb(0 0 0 / .45)}
 .dlg{padding:18px;display:grid;gap:14px;max-height:80vh;overflow:auto}
+.dlg-top{position:sticky;top:-18px;z-index:2;margin:-18px -18px 0;padding:12px 18px;background:var(--surface);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
 .dlg h4{margin:0;font-family:var(--font-display);font-size:1.15rem}
 .tbl{width:100%;border-collapse:collapse;font-size:.9rem}
 .tbl td,.tbl th{padding:8px 6px;border-bottom:1px solid var(--line);text-align:left}
@@ -423,7 +424,7 @@ function detail(id){
   const x=cleanings().find(c=>c.r.id===id);if(!x)return;const c=C(id);const st=staff(c.staffId);
   const canDo=ME.role==='staff'&&c.staffId===ME.id&&!c.doneAt;
   const mine=ME.role==='staff'&&c.staffId===ME.id;const P=prop(x.r.propertyId);const F=c.final||{};
-  openDlg(`<h4>${h(prop(x.r.propertyId).name)}　${md(x.date)}</h4>${facts(x)}
+  openDlg(`<div class="dlg-top"><h4>${h(prop(x.r.propertyId).name)}　${md(x.date)}</h4><span>${canDo?`<button class="btn ghost small" data-act="savemid" data-id="${id}">途中保存</button> `:''}<button class="btn ghost small" data-act="close">✕ 閉じる</button></span></div>${facts(x)}
    <div class="row"><span class="note">担当：${st?h(st.name):'未担当'}${c.doneAt?`　／　完了 ${md(c.doneAt)}`:''}</span>${manBtn()}</div>
    <div class="dsec"><h5>トラブル報告 <small><span class="opt">任意</span> 破損・汚損・忘れ物があれば</small></h5>
    ${TRS(c).map(t=>trHtml(t,x,false)+(t.resolved?'<div class="note">↑ オーナー対応済み</div>':'')).join('')||'<div class="note">報告はありません</div>'}
@@ -438,7 +439,7 @@ function detail(id){
    ${Object.keys(P.low||{}).length?`<div class="note">オーナーに通知済み：${Object.keys(P.low).map(h).join('、')}</div>`:'<div class="note">少なくなっている物はありません</div>'}
    ${mine?`<button class="btn ghost small" style="justify-self:start" data-act="stockdlg" data-id="${id}">在庫があと少しの物をチェック</button>`:''}</div>
    <div class="row" style="justify-content:flex-end">
-   ${canDo?`<div id="prog" style="width:100%">${progHtml(c,P)}</div>`:''}${canDo?`<button class="btn ghost small" data-act="release" data-id="${id}">担当を外れる</button><button class="btn" data-act="done" data-id="${id}">完了を報告</button>`:''}
+   ${canDo?`<div id="prog" style="width:100%">${progHtml(c,P)}</div>`:''}${canDo?`<button class="btn ghost small" data-act="release" data-id="${id}">担当を外れる</button><button class="btn ghost small" data-act="savemid" data-id="${id}">途中保存</button><button class="btn" data-act="done" data-id="${id}">完了を報告</button>`:''}
    ${ME.role==='owner'&&c.doneAt?`<button class="btn ghost small" data-act="undone" data-id="${id}">完了を取り消す</button>`:''}
    <button class="btn ghost small" data-act="close">閉じる</button></div>`);
 }
@@ -536,6 +537,7 @@ document.addEventListener('click',async e=>{
   else if(act==='tab'){ui.tab=v;saveUi();render()}
   else if(act==='detail')detail(id);
   else if(act==='close')dlg.close();
+  else if(act==='savemid'){if(await saveCleaning(id))toast('保存しました。続きはあとからできます')}
   else if(act==='ack'){const c=C(id);c[c.doneAt?'snapD':'snapA']=snap(nextOf(resOf(id)));if(dlg.open)detail(id);render();if(await saveCleaning(id))toast('確認済みにしました')}
   else if(act==='trnew')trDlg(id);
   else if(act==='confirm'){const r=monthCalc().rows.find(x=>x.st.id===ME.id);S.confirms[cfKey(v,ME.id)]={at:TODAY,total:r.total};render();
