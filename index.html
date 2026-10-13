@@ -346,7 +346,7 @@ function ownerClean(){
   const open=up.filter(x=>x.status==='open').length, wk=up.filter(x=>x.date<=add(TODAY,7)).length;
   return alertsHtml()+`<div class="summary"><span><b>${wk}</b>件 今後7日の清掃</span><span class="${open?'alert':''}"><b>${open}</b>件 未担当</span><span class="${list.some(flag)?'alert':''}"><b>${list.filter(flag).length}</b>件 予約変更あり</span></div>`+
   (grouped(list,ocard=x=>{
-    const opts=S.staff.filter(s=>s.props.includes(x.r.propertyId)).map(s=>`<option value="${s.id}" ${x.c.staffId===s.id?'selected':''}>${h(s.name)}</option>`).join('');
+    const opts=S.staff.filter(s=>s.props.includes(x.r.propertyId)).map(s=>`<option value="${s.id}" ${x.c.staffId===s.id?'selected':''}>${h(s.name)}</option>`).join('')+(x.c.staffId&&!S.staff.some(s=>s.id===x.c.staffId&&s.props.includes(x.r.propertyId))?`<option value="${x.c.staffId}" selected>${h(nameOf(x.c.staffId)||'その他')}</option>`:'');
     const tr=(x.c.troubles||[]).filter(t=>!t.resolved).length;
     return `<div class="card">${cardHead(x)}${facts(x)}${tr?`<div class="flag red"><span>トラブル報告 ${tr}件</span></div>`:''}<div class="row">
       <label class="note">担当 <select id="as-${x.r.id}" data-act="assign" data-id="${x.r.id}"><option value="">未担当</option>${opts}</select></label>
@@ -432,7 +432,7 @@ function staffView(){
   const hist=mineAll.filter(x=>x.c.doneAt&&!flag(x)).reverse();
   const left=mine.filter(x=>x.date.startsWith(TODAY.slice(0,7))).length;
   const open=all.filter(x=>x.status==='open'&&x.date>=TODAY&&me.props.includes(x.r.propertyId));
-  const card=(x,btn)=>`<div class="card ${btn?'':'tap'}" ${btn?'':`data-act="detail" data-id="${x.r.id}"`}>${cardHead(x)}${facts(x)}${btn?`<div class="row" style="justify-content:flex-end"><button class="btn small" data-act="take" data-id="${x.r.id}">この清掃に入る</button></div>`:''}</div>`;
+  const card=(x,btn)=>`<div class="card ${btn?'':'tap'}" ${btn?'':`data-act="detail" data-id="${x.r.id}"`}>${cardHead(x)}${facts(x)}${btn?`<div class="row" style="justify-content:flex-end">${ME.role==='staff'?`<button class="btn small" data-act="take" data-id="${x.r.id}">この清掃に入る</button>`:'<span class="note">プレビュー中は入れません</span>'}</div>`:''}</div>`;
   return `<div class="row" style="margin-top:16px"><p class="note" style="margin:0">${h(me.name)}さんの画面です。ほかのスタッフの担当は表示されません。</p>${manBtn()}</div>
   <div class="sect"><h3>あなたの担当 <small class="note">今月の残り ${left}件</small></h3>${grouped(mine,x=>card(x))||'<p class="empty">これからの担当はありません。下の「募集中」から入れます。</p>'}${hist.length?`<details class="refs hist" style="margin-top:12px"><summary>完了した清掃の履歴（${hist.length}件）</summary>${grouped(hist,x=>card(x))}</details>`:''}</div>
   <div class="sect"><h3>募集中の清掃</h3>${grouped(open,x=>card(x,true))||'<p class="empty">募集中の清掃はありません。</p>'}</div>${staffPay(me)}`;
