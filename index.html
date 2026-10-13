@@ -101,6 +101,21 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid 
 .req{font-size:.7rem;font-weight:700;color:var(--danger);background:var(--danger-soft);padding:1px 8px;border-radius:99px}
 .opt{font-size:.7rem;font-weight:700;color:var(--muted);border:1px solid var(--line);padding:0 7px;border-radius:99px}
 details.hist .card{opacity:.6}
+.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px;margin-top:10px}
+.cw{text-align:center;font-size:.75rem;color:var(--muted)}
+.cd{aspect-ratio:1/1.15;border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:3px 4px;display:flex;flex-direction:column;align-items:flex-start;gap:1px;font:inherit;cursor:pointer;min-width:0;position:relative;color:var(--ink)}
+.cd.empty{border:0;background:none;cursor:default}
+.cd .dn{font-size:.75rem;font-family:var(--font-num)}
+.cd .g{font-size:.68rem;font-weight:700}
+.cd.occ.airbnb,.sw.airbnb{background:color-mix(in srgb,var(--air) 24%,var(--surface))}
+.cd.occ.booking,.sw.booking{background:color-mix(in srgb,var(--bkg) 24%,var(--surface))}
+.cd.occ.manual,.sw.manual{background:color-mix(in srgb,var(--muted) 24%,var(--surface))}
+.cd.today{outline:2px solid var(--accent);outline-offset:-1px}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;box-sizing:border-box;position:absolute;bottom:4px}
+.legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;font-size:.78rem;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:4px}
+.legend .dot{position:static}
+.sw{display:inline-block;width:14px;height:10px;border-radius:3px}
 .lowtag{font-size:.72rem;color:var(--warn);font-weight:700}
 details.refs summary{cursor:pointer;color:var(--accent);font-weight:700;font-size:.9rem}
 details.refs .shots{margin-top:8px}
@@ -484,6 +499,27 @@ function compress(file){return new Promise(res=>{const u=URL.createObjectURL(fil
 
 /* ---------- render & events ---------- */
 let tt;function toast(m){const t=$('#toast');(dlg.open?dlg:document.body).appendChild(t);t.textContent=m;t.hidden=false;clearTimeout(tt);tt=setTimeout(()=>t.hidden=true,3000)}
+const SCOL=['#2F7DE1','#E07A1F','#8E5BD0','#1F9D80','#D0457A','#7A8A33'];
+const scol=id=>{const i=S.staff.findIndex(s=>s.id===id);return i<0?'#9AA7A2':SCOL[i%SCOL.length]};
+function ownerCal(){
+  const b=new Date(TODAY+'T00:00');b.setDate(1);b.setMonth(b.getMonth()+(ui.cOff||0));
+  const y=b.getFullYear(),m=b.getMonth(),days=new Date(y,m+1,0).getDate(),cl=cleanings();
+  let cells='';for(let i=0;i<b.getDay();i++)cells+='<div class="cd empty"></div>';
+  for(let d=1;d<=days;d++){const ds=ymd(new Date(y,m,d));
+    const stay=S.reservations.find(r=>r.checkin<=ds&&r.checkout>ds);
+    const cs=cl.filter(x=>x.date===ds);
+    cells+=`<button class="cd ${stay?'occ '+stay.source:''} ${ds===TODAY?'today':''}" data-act="cday" data-v="${ds}"><span class="dn">${d}</span>${stay&&stay.checkin===ds?`<span class="g">${stay.guests??'?'}名</span>`:''}${cs.map((x,i)=>`<i class="dot" style="right:${4+i*12}px;${x.c.staffId?`background:${scol(x.c.staffId)}`:'border:2px solid var(--danger)'}"></i>`).join('')}</button>`}
+  return monNav(b,'のカレンダー').replace(/data-act="mon"/g,'data-act="cmon"')+`<div class="cal">${[...'日月火水木金土'].map(w=>`<div class="cw">${w}</div>`).join('')}${cells}</div>
+  <div class="legend"><span><i class="sw airbnb"></i>Airbnb宿泊</span><span><i class="sw booking"></i>Booking宿泊</span><span><i class="sw manual"></i>手入力</span><span><i class="dot" style="border:2px solid var(--danger)"></i>清掃・未担当</span>${S.staff.map(s=>`<span><i class="dot" style="background:${scol(s.id)}"></i>${h(s.name)}</span>`).join('')}</div>
+  <p class="note">日付をタップすると、宿泊人数と清掃の担当が見られます。</p>`;
+}
+function dayDlg(ds){
+  const stays=S.reservations.filter(r=>(r.checkin<=ds&&r.checkout>ds)||r.checkout===ds).sort((a,b)=>a.checkin<b.checkin?-1:1);
+  const cl=cleanings().filter(x=>x.date===ds);
+  openDlg(`<div class="dlg-top"><h4>${md(ds)}</h4><button class="btn ghost small" data-act="close">✕ 閉じる</button></div>
+  <div class="dsec"><h5>宿泊</h5>${stays.map(r=>`<div class="card"><div class="row"><span class="chip ${r.source}">${SRC[r.source]}</span><span class="note">${md(r.checkin)}〜${md(r.checkout)}・${diff(r.checkin,r.checkout)}泊</span></div><div><b>${r.guests??'?'}</b>名 <span class="note">${r.checkout===ds?'この日チェックアウト':r.checkin===ds?'この日チェックイン':'滞在中'}</span></div></div>`).join('')||'<p class="note">宿泊はありません</p>'}</div>
+  <div class="dsec"><h5>清掃</h5>${cl.map(x=>`<div class="card"><div class="row"><span>担当：<b>${x.c.staffId?h(nameOf(x.c.staffId)||'—'):'<span class="missing">未担当</span>'}</b></span><span class="pill ${x.status}">${pillTxt[x.status]}</span></div>${facts(x)}<button class="btn ghost small" style="justify-self:start" data-act="detail" data-id="${x.r.id}">清掃の詳細</button></div>`).join('')||'<p class="note">清掃はありません</p>'}</div>`);
+}
 function ownerSettings(){
   return `<div class="sect"><h3>物件と予約カレンダー</h3>
   <p class="note">Airbnb・Booking.com の「カレンダーをエクスポート（iCal）」のURLを貼ると、30分ごとに予約を自動で読み込みます。</p>
@@ -529,11 +565,11 @@ function render(){
   $('#roles').hidden=!owner;
   $('#r-owner').setAttribute('aria-pressed',ui.role==='owner');$('#r-staff').setAttribute('aria-pressed',ui.role==='staff');
   const sp=$('#staffPick');sp.hidden=!owner||ui.role!=='staff';sp.innerHTML=S.staff.map(s=>`<option value="${s.id}" ${s.id===ui.staff?'selected':''}>${h(s.name)}さんの画面</option>`).join('');
-  const tabs=[['clean','清掃予定'],['res','予約・人数'],['tally','支払い'],['set','設定']];
+  const tabs=[['clean','清掃予定'],['cal','カレンダー'],['res','予約・人数'],['tally','支払い'],['set','設定']];
   $('#tabs').hidden=ui.role!=='owner';
   $('#tabs').innerHTML=tabs.map(([k,l])=>`<button role="tab" aria-selected="${ui.tab===k}" data-act="tab" data-v="${k}">${l}${k==='set'&&S.pending.length?` <span class="pill open">${S.pending.length}</span>`:''}</button>`).join('');
   if(ui.role==='staff'&&!staff(ui.staff)){$('#main').innerHTML='<p class="empty">スタッフがまだ登録されていません。</p>';return}
-  $('#main').innerHTML=ui.role==='staff'?staffView():({clean:ownerClean,res:ownerRes,tally:ownerTally,set:ownerSettings}[ui.tab]||ownerClean)();
+  $('#main').innerHTML=ui.role==='staff'?staffView():({clean:ownerClean,cal:ownerCal,res:ownerRes,tally:ownerTally,set:ownerSettings}[ui.tab]||ownerClean)();
 }
 $('#staffPick').onchange=e=>{ui.staff=e.target.value;render()};
 const resOf=id=>S.reservations.find(x=>x.id===id);
@@ -546,6 +582,8 @@ document.addEventListener('click',async e=>{
   else if(act==='tab'){ui.tab=v;saveUi();render()}
   else if(act==='detail')detail(id);
   else if(act==='close')dlg.close();
+  else if(act==='cmon'){ui.cOff=(ui.cOff||0)+(+v);render()}
+  else if(act==='cday')dayDlg(v);
   else if(act==='savemid'){if(await saveCleaning(id))toast('保存しました。続きはあとからできます')}
   else if(act==='ack'){const c=C(id);c[c.doneAt?'snapD':'snapA']=snap(nextOf(resOf(id)));if(dlg.open)detail(id);render();if(await saveCleaning(id))toast('確認済みにしました')}
   else if(act==='trnew')trDlg(id);
