@@ -221,7 +221,7 @@ async function q(p,msg){
 function saveCleaning(rid,msg){
   const c=S.cleanings[rid]||{};const data={};
   ['shots','final','troubles'].forEach(k=>{if(c[k])data[k]=c[k]});
-  ['snapA','snapD'].forEach(k=>{if(k in c)data[k]=c[k]});
+  ['snapA','snapD','osnapA','osnapD'].forEach(k=>{if(k in c)data[k]=c[k]});
   return q(sb.from('cleanings').upsert({reservation_id:rid,staff_id:c.staffId||null,done_at:c.doneAt||null,data,updated_at:new Date().toISOString()}),msg);
 }
 async function upload(dataUrl){
@@ -293,14 +293,15 @@ const C=id=>S.cleanings[id]||(S.cleanings[id]={staffId:'',checks:{},photos:[],do
 const nextOf=r=>S.reservations.filter(x=>x.propertyId===r.propertyId&&x.id!==r.id&&x.checkin>=r.checkout).sort((a,b)=>a.checkin<b.checkin?-1:1)[0];
 const snap=n=>n?{id:n.id,checkin:n.checkin,guests:n.guests??null,nights:diff(n.checkin,n.checkout)}:null;
 const desc=s=>s?`${md(s.checkin)}IN ${s.guests??'?'}名・${s.nights}泊`:'予約なし';
+const sk=(c,k)=>ME&&ME.role==='owner'&&(('o'+k) in c)?c['o'+k]:c[k];
 const sameSnap=(a,b)=>(!a&&!b)||(!!a&&!!b&&a.id===b.id&&a.checkin===b.checkin&&(a.guests??null)===(b.guests??null)&&a.nights===b.nights);
 function flag(x){
   const c=x.c,cur=snap(x.next);
-  if(c.doneAt){const s=c.snapD;if(s===undefined||!cur||cur.checkin<TODAY)return null;
+  if(c.doneAt){const s=sk(c,'snapD');if(s===undefined||!cur||cur.checkin<TODAY)return null;
     const more=(cur.guests||0)-(s?.guests||0);
     if(s&&s.id===cur.id&&cur.checkin>=s.checkin&&more<=0)return null;
     return {lv:'red',msg:`⚠ 清掃後に予約が変わりました<br>清掃時：${desc(s)} → 今：${desc(cur)}<br>${more>0?`<b>寝具・アメニティを${more}名分追加</b>してください`:'準備内容を確認してください'}`,ack:'追加準備しました'}}
-  if(c.staffId){const s=c.snapA;if(s===undefined||sameSnap(s,cur))return null;
+  if(c.staffId){const s=sk(c,'snapA');if(s===undefined||sameSnap(s,cur))return null;
     return {lv:'amber',msg:`担当決定後に次の予約が変わりました<br>前：${desc(s)} → 今：${desc(cur)}`,ack:'確認しました'}}
   return null;
 }
@@ -426,6 +427,8 @@ function ownerTally(){
 /* ---------- staff ---------- */
 function staffView(){
   const me=staff(ui.staff);if(!me)return '<p class="empty">スタッフが登録されていません。</p>';
+  const seg=`<div class="seg" role="group" style="margin-top:12px"><button data-act="sv" data-v="list" aria-pressed="${ui.sv!=='cal'}">リスト</button><button data-act="sv" data-v="cal" aria-pressed="${ui.sv==='cal'}">カレンダー</button></div>`;
+  if(ui.sv==='cal')return seg+ownerCal();
   const all=cleanings();
   const mineAll=all.filter(x=>x.c.staffId===me.id);
   const mine=mineAll.filter(x=>!x.c.doneAt||flag(x));
@@ -433,7 +436,7 @@ function staffView(){
   const left=mine.filter(x=>x.date.startsWith(TODAY.slice(0,7))).length;
   const open=all.filter(x=>x.status==='open'&&x.date>=TODAY&&me.props.includes(x.r.propertyId));
   const card=(x,btn)=>`<div class="card ${btn?'':'tap'}" ${btn?'':`data-act="detail" data-id="${x.r.id}"`}>${cardHead(x)}${facts(x)}${btn?`<div class="row" style="justify-content:flex-end">${ME.role==='staff'?`<button class="btn small" data-act="take" data-id="${x.r.id}">この清掃に入る</button>`:'<span class="note">プレビュー中は入れません</span>'}</div>`:''}</div>`;
-  return `<div class="row" style="margin-top:16px"><p class="note" style="margin:0">${h(me.name)}さんの画面です。ほかのスタッフの担当は表示されません。</p>${manBtn()}</div>
+  return seg+`<div class="row" style="margin-top:16px"><p class="note" style="margin:0">${h(me.name)}さんの画面です。ほかのスタッフの担当は表示されません。</p>${manBtn()}</div>
   <div class="sect"><h3>あなたの担当 <small class="note">今月の残り ${left}件</small></h3>${grouped(mine,x=>card(x))||'<p class="empty">これからの担当はありません。下の「募集中」から入れます。</p>'}${hist.length?`<details class="refs hist" style="margin-top:12px"><summary>完了した清掃の履歴（${hist.length}件）</summary>${grouped(hist,x=>card(x))}</details>`:''}</div>
   <div class="sect"><h3>募集中の清掃</h3>${grouped(open,x=>card(x,true))||'<p class="empty">募集中の清掃はありません。</p>'}</div>${staffPay(me)}`;
 }
@@ -501,21 +504,22 @@ function compress(file){return new Promise(res=>{const u=URL.createObjectURL(fil
 let tt;function toast(m){const t=$('#toast');(dlg.open?dlg:document.body).appendChild(t);t.textContent=m;t.hidden=false;clearTimeout(tt);tt=setTimeout(()=>t.hidden=true,3000)}
 const SCOL=['#2F7DE1','#E07A1F','#8E5BD0','#1F9D80','#D0457A','#7A8A33'];
 const scol=id=>{const i=S.staff.findIndex(s=>s.id===id);return i<0?'#9AA7A2':SCOL[i%SCOL.length]};
+const vis=x=>ui.role!=='staff'||x.c.staffId===ui.staff||x.status==='open';
 function ownerCal(){
   const b=new Date(TODAY+'T00:00');b.setDate(1);b.setMonth(b.getMonth()+(ui.cOff||0));
   const y=b.getFullYear(),m=b.getMonth(),days=new Date(y,m+1,0).getDate(),cl=cleanings();
   let cells='';for(let i=0;i<b.getDay();i++)cells+='<div class="cd empty"></div>';
   for(let d=1;d<=days;d++){const ds=ymd(new Date(y,m,d));
     const stay=S.reservations.find(r=>r.checkin<=ds&&r.checkout>ds);
-    const cs=cl.filter(x=>x.date===ds);
+    const cs=cl.filter(x=>x.date===ds&&vis(x));
     cells+=`<button class="cd ${stay?'occ '+stay.source:''} ${ds===TODAY?'today':''}" data-act="cday" data-v="${ds}"><span class="dn">${d}</span>${stay&&stay.checkin===ds?`<span class="g">${stay.guests??'?'}名</span>`:''}${cs.map((x,i)=>`<i class="dot" style="right:${4+i*12}px;${x.c.staffId?`background:${scol(x.c.staffId)}`:'border:2px solid var(--danger)'}"></i>`).join('')}</button>`}
   return monNav(b,'のカレンダー').replace(/data-act="mon"/g,'data-act="cmon"')+`<div class="cal">${[...'日月火水木金土'].map(w=>`<div class="cw">${w}</div>`).join('')}${cells}</div>
-  <div class="legend"><span><i class="sw airbnb"></i>Airbnb宿泊</span><span><i class="sw booking"></i>Booking宿泊</span><span><i class="sw manual"></i>手入力</span><span><i class="dot" style="border:2px solid var(--danger)"></i>清掃・未担当</span>${S.staff.map(s=>`<span><i class="dot" style="background:${scol(s.id)}"></i>${h(s.name)}</span>`).join('')}</div>
+  <div class="legend"><span><i class="sw airbnb"></i>Airbnb宿泊</span><span><i class="sw booking"></i>Booking宿泊</span><span><i class="sw manual"></i>手入力</span><span><i class="dot" style="border:2px solid var(--danger)"></i>清掃・未担当</span>${S.staff.filter(s=>ui.role!=='staff'||s.id===ui.staff).map(s=>`<span><i class="dot" style="background:${scol(s.id)}"></i>${h(s.name)}</span>`).join('')}</div>
   <p class="note">日付をタップすると、宿泊人数と清掃の担当が見られます。</p>`;
 }
 function dayDlg(ds){
   const stays=S.reservations.filter(r=>(r.checkin<=ds&&r.checkout>ds)||r.checkout===ds).sort((a,b)=>a.checkin<b.checkin?-1:1);
-  const cl=cleanings().filter(x=>x.date===ds);
+  const cl=cleanings().filter(x=>x.date===ds&&vis(x));
   openDlg(`<div class="dlg-top"><h4>${md(ds)}</h4><button class="btn ghost small" data-act="close">✕ 閉じる</button></div>
   <div class="dsec"><h5>宿泊</h5>${stays.map(r=>`<div class="card"><div class="row"><span class="chip ${r.source}">${SRC[r.source]}</span><span class="note">${md(r.checkin)}〜${md(r.checkout)}・${diff(r.checkin,r.checkout)}泊</span></div><div><b>${r.guests??'?'}</b>名 <span class="note">${r.checkout===ds?'この日チェックアウト':r.checkin===ds?'この日チェックイン':'滞在中'}</span></div></div>`).join('')||'<p class="note">宿泊はありません</p>'}</div>
   <div class="dsec"><h5>清掃</h5>${cl.map(x=>`<div class="card"><div class="row"><span>担当：<b>${x.c.staffId?h(nameOf(x.c.staffId)||'—'):'<span class="missing">未担当</span>'}</b></span><span class="pill ${x.status}">${pillTxt[x.status]}</span></div>${facts(x)}<button class="btn ghost small" style="justify-self:start" data-act="detail" data-id="${x.r.id}">清掃の詳細</button></div>`).join('')||'<p class="note">清掃はありません</p>'}</div>`);
@@ -582,10 +586,11 @@ document.addEventListener('click',async e=>{
   else if(act==='tab'){ui.tab=v;saveUi();render()}
   else if(act==='detail')detail(id);
   else if(act==='close')dlg.close();
+  else if(act==='sv'){ui.sv=v;render()}
   else if(act==='cmon'){ui.cOff=(ui.cOff||0)+(+v);render()}
   else if(act==='cday')dayDlg(v);
   else if(act==='savemid'){if(await saveCleaning(id))toast('保存しました。続きはあとからできます')}
-  else if(act==='ack'){const c=C(id);c[c.doneAt?'snapD':'snapA']=snap(nextOf(resOf(id)));if(dlg.open)detail(id);render();if(await saveCleaning(id))toast('確認済みにしました')}
+  else if(act==='ack'){const c=C(id),k=c.doneAt?'snapD':'snapA',cur=snap(nextOf(resOf(id)));if(ME.role==='owner'){c['o'+k]=cur}else{if(!(('o'+k) in c))c['o'+k]=c[k];c[k]=cur}if(dlg.open)detail(id);render();if(await saveCleaning(id))toast('確認済みにしました')}
   else if(act==='trnew')trDlg(id);
   else if(act==='confirm'){const r=monthCalc().rows.find(x=>x.st.id===ME.id);S.confirms[cfKey(v,ME.id)]={at:TODAY,total:r.total};render();
     if(await q(sb.from('confirms').upsert({month:v,staff_id:ME.id,at:TODAY,total:r.total})))toast('確認しました')}
@@ -603,12 +608,12 @@ document.addEventListener('click',async e=>{
     if(await saveCleaning(id)){render();detail(id);toast('オーナーに報告しました')}}
   else if(act==='trdone'){const t=TRS(C(id)).find(t=>t.id===el.dataset.t);if(t)t.resolved=true;render();if(await saveCleaning(id))toast('対応済みにしました')}
   else if(act==='refill'){const P=prop(id);delete P.low[el.dataset.k];render();if(await q(sb.from('stock_low').delete().eq('property_id',id).eq('item',el.dataset.k)))toast('補充済みにしました')}
-  else if(act==='take'){const c=C(id);c.staffId=ME.id;c.snapA=snap(nextOf(resOf(id)));render();
+  else if(act==='take'){const c=C(id);c.staffId=ME.id;c.snapA=c.osnapA=snap(nextOf(resOf(id)));render();
     if(await saveCleaning(id,'ほかの人が先に担当になったか、通信できませんでした'))toast('担当になりました')}
   else if(act==='release'){C(id).staffId='';dlg.close();render();if(await saveCleaning(id))toast('担当を外れました')}
   else if(act==='done'){const c=C(id);const P=prop(resOf(id).propertyId);const miss=pl(P).filter(k=>!SH(c)[k]);if(miss.length){toast(`まだ撮っていない場所：${miss.slice(0,3).join('、')}${miss.length>3?` ほか${miss.length-3}か所`:''}`);return}
     const fm=items(fl(P)).filter(k=>!(c.final||{})[k]);if(fm.length){toast(`最終チェックが残っています：${fm.slice(0,3).join('、')}${fm.length>3?` ほか${fm.length-3}件`:''}`);return}
-    c.doneAt=TODAY;c.snapD=snap(nextOf(resOf(id)));dlg.close();render();if(await saveCleaning(id))toast('完了を報告しました')}
+    c.doneAt=TODAY;c.snapD=c.osnapD=snap(nextOf(resOf(id)));dlg.close();render();if(await saveCleaning(id))toast('完了を報告しました')}
   else if(act==='undone'){C(id).doneAt=null;dlg.close();render();saveCleaning(id)}
   else if(act==='syncnow')syncNow(true);
   else if(act==='addres')addResDlg();
@@ -630,7 +635,7 @@ document.addEventListener('click',async e=>{
 });
 document.addEventListener('change',async e=>{
   const el=e.target;const {act,id}=el.dataset;
-  if(act==='assign'){const c=C(id);c.staffId=el.value;c.snapA=snap(nextOf(resOf(id)));render();if(await saveCleaning(id))toast(el.value?`${staff(el.value).name}さんに割り当てました`:'未担当に戻しました')}
+  if(act==='assign'){const c=C(id);c.staffId=el.value;c.snapA=c.osnapA=snap(nextOf(resOf(id)));render();if(await saveCleaning(id))toast(el.value?`${staff(el.value).name}さんに割り当てました`:'未担当に戻しました')}
   else if(act==='guests'){const r=resOf(id);r.guests=+el.value||null;q(sb.from('reservations').update({guests:r.guests}).eq('id',id))}
   else if(act==='towel'){const r=resOf(id);r.towelAdd=Math.max(0,+el.value||0);q(sb.from('reservations').update({towel_add:r.towelAdd}).eq('id',id))}
   else if(act==='pname'){const P=prop(id);P.name=el.value.trim()||'物件';q(sb.from('properties').update({name:P.name}).eq('id',id))}
