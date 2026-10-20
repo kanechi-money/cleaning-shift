@@ -382,9 +382,10 @@ function monthCalc(){
   const b=new Date(TODAY+'T00:00');b.setDate(1);b.setMonth(b.getMonth()+(ui.mOff||0));const m=ymd(b).slice(0,7);
   const done=cleanings().filter(x=>x.c.doneAt&&x.date.startsWith(m));
   const ex=(S.extras||[]).filter(e=>e.date.startsWith(m));
+  const plan=cleanings().filter(x=>!x.c.doneAt&&x.c.staffId&&x.date.startsWith(m));
   const rows=S.staff.map(st=>{const d=done.filter(x=>x.c.staffId===st.id),e=ex.filter(x=>x.staffId===st.id);
-    return {st,d,e,total:d.length*rate()+e.reduce((a,x)=>a+x.amount,0)}});
-  return {b,m,rows};
+    return {st,d,e,p:plan.filter(x=>x.c.staffId===st.id),total:d.length*rate()+e.reduce((a,x)=>a+x.amount,0)}});
+  return {b,m,rows,un:cleanings().filter(x=>!x.c.doneAt&&!x.c.staffId&&x.date.startsWith(m)).length};
 }
 const cfKey=(m,id)=>m+':'+id;
 function cfState(m,r){const c=(S.confirms||{})[cfKey(m,r.st.id)];return !c?'none':c.total===r.total?'ok':'changed'}
@@ -395,7 +396,7 @@ function detailTable(r){return `<table class="tbl">${r.d.map(x=>`<tr><td>${md(x.
 function staffPay(me){
   const {b,m,rows}=monthCalc();const r=rows.find(x=>x.st.id===me.id);const st=cfState(m,r);
   return `<div class="sect">${monNav(b,'の支払い明細')}<div class="card"><div class="row"><b style="font-family:var(--font-num);font-size:1.3rem">${yen(r.total)}</b>${cfTag(m,r)}</div>
-   <div class="note">清掃 ${r.d.length}回 × ${yen(rate())}${r.e.length?`　＋　追加清掃 ${r.e.length}件`:''}</div>
+   <div class="note">完了 ${r.d.length}回 × ${yen(rate())}${r.e.length?`　＋　追加清掃 ${r.e.length}件`:''}</div>${r.p.length?`<div class="note" style="color:var(--accent)">予定 あと${r.p.length}回（${yen(r.p.length*rate())}）→ 月の見込み ${yen(r.total+r.p.length*rate())}</div>`:''}
    ${r.d.length||r.e.length?detailTable(r):''}
    ${st!=='ok'&&r.total&&ME.id===r.st.id?`<p class="note" style="margin:0">${st==='changed'?'確認したあとに金額が変わりました。もう一度確認してください。':'月末に内容を見て、合っていれば押してください。'}</p><button class="btn" style="justify-self:start" data-act="confirm" data-v="${m}">内容を確認しました</button>`:''}</div></div>`;
 }
@@ -407,14 +408,15 @@ function csvOf(m,rows){
   return [['日付','物件','スタッフ','区分','内容','金額'],...L].map(r=>r.map(q).join(',')).join('\r\n');
 }
 function ownerTally(){
-  const {b,m,rows}=monthCalc();
+  const {b,m,rows,un}=monthCalc();
   const pending=cleanings().filter(x=>x.date.startsWith(m)&&!x.c.doneAt&&x.date<TODAY).length;
   return monNav(b,'の支払い')+`
   <p class="note">完了報告された清掃 × ${yen(rate())} ＋ 追加清掃。担当を変えると、支払いも新しい担当者に移ります。${pending?`<span class="missing">完了報告がまだの清掃が${pending}件あります。</span>`:''}</p>
   ${rows.map(r=>`<div class="card"><div class="row"><span><span class="prop">${h(r.st.name)}</span> ${cfTag(m,r)}</span><b style="font-family:var(--font-num);font-size:1.2rem">${yen(r.total)}</b></div>
-   <div class="note">清掃 ${r.d.length}回 × ${yen(rate())}${r.e.length?`　＋　追加清掃 ${r.e.length}件`:''}</div>
+   <div class="note">完了 ${r.d.length}回 × ${yen(rate())}${r.e.length?`　＋　追加清掃 ${r.e.length}件`:''}</div>${r.p.length?`<div class="note" style="color:var(--accent)">予定 あと${r.p.length}回（${yen(r.p.length*rate())}）→ 月の見込み ${yen(r.total+r.p.length*rate())}</div>`:''}
    ${r.d.length||r.e.length?`<details><summary class="note" style="cursor:pointer">明細を見る</summary>${detailTable(r)}</details>`:''}</div>`).join('')}
-  <div class="card"><div class="row"><span>合計</span><b style="font-family:var(--font-num);font-size:1.2rem">${yen(rows.reduce((a,r)=>a+r.total,0))}</b></div>
+  <div class="card"><div class="row"><span>完了分の合計</span><b style="font-family:var(--font-num);font-size:1.2rem">${yen(rows.reduce((a,r)=>a+r.total,0))}</b></div>
+   <div class="row" style="color:var(--accent)"><span>予定込みの見込み（予定 ${rows.reduce((a,r)=>a+r.p.length,0)}回${un?`・ほかに未担当 ${un}回`:''}）</span><b style="font-family:var(--font-num)">${yen(rows.reduce((a,r)=>a+r.total+r.p.length*rate(),0))}</b></div>
    <button class="btn ghost small" style="justify-self:start" data-act="csv">CSVで保存（会計ソフト・確定申告用）</button></div>
   <div class="sect"><h3>追加清掃を記入</h3><div class="card">
    <label>日付 <input type="date" id="ex-d" value="${TODAY.startsWith(m)?TODAY:m+'-01'}"></label>
