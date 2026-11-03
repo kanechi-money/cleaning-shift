@@ -155,6 +155,7 @@ function buildItems(){
     const k=key(a.checkin,a.checkout);const r=resAir[k];
     if(items.some(i=>i.k===k))return; // 同じ日程は最新のメールだけ使う
     if(r)used.add(r.id);
+    if(a.excluded){items.push({k,excluded:true});return} // 売上に数えない予約（予約ごとに設定）
     items.push({src:'airbnb',k,checkin:a.checkin,checkout:a.checkout,amount:a.payout,kind:'auto',code:a.code,cancelled:a.cancelled||!!r?.cancelled});
   });
   // 1泊あたりの平均（Airbnbの実績から）
@@ -172,7 +173,7 @@ function buildItems(){
     const id='booking:'+r.id;const m=manual[id];
     items.push({src:'booking',id,checkin:r.checkin,checkout:r.checkout,amount:m??Math.round(avg*diff(r.checkin,r.checkout)),kind:m!=null?'manual':'est',cancelled:r.cancelled});
   });
-  return items;
+  return items.filter(i=>!i.excluded);
 }
 
 function calc(m,items=buildItems()){
@@ -194,8 +195,9 @@ function calc(m,items=buildItems()){
   const rent=m>=D.rentStart?D.rent:0;
   const wifi=D.wifiStart&&m>=D.wifiStart?D.wifi:0;
   const util=['electricity','gas','water','other'].reduce((s,k)=>s+(fm[k]||0),0);
-  const cleaning=cleanN*D.rate+extra;
-  return {live,cxl,income,air,bk,nights,days,cleanN,unassigned,extra,cleaning,rent,wifi,fm,util,expense:rent+wifi+cleaning+util};
+  const cleaningAuto=cleanN*D.rate+extra;
+  const cleaning=fm.cleaning_override??cleaningAuto; // 手入力があればそちらを使う
+  return {live,cxl,income,air,bk,nights,days,cleanN,unassigned,extra,cleaningAuto,cleaning,rent,wifi,fm,util,expense:rent+wifi+cleaning+util};
 }
 
 const TAG={auto:['auto','自動'],wait:['est','見込み・メール待ち'],est:['est','見込み'],manual:['man','手入力']};
@@ -303,8 +305,9 @@ function render(){
    <div class="ledger">
     <div class="line"><div class="what">家賃${c.rent?'':`<span class="note">${rs[0]}年${rs[1]}月から発生</span>`}</div><div class="amt">${yen(c.rent)}</div></div>
     <div class="line"><div class="what">Wi-Fi</div><div class="amt">${yen(c.wifi)}</div></div>
-    <div class="line"><div class="what">清掃費<span class="note">${paidNames()}の担当 ${c.cleanN}回 × ${yen(D.rate)}${c.extra?` ＋ 追加作業 ${yen(c.extra)}`:''}</span></div><div class="amt">${yen(c.cleaning)}</div>
-     ${c.unassigned?`<div class="sub">担当がまだ決まっていない清掃が${c.unassigned}回あります（決まると自動で入ります）。</div>`:''}</div>
+    <div class="line"><div class="what">清掃費${c.fm.cleaning_override!=null?'<span class="tag man">手入力</span>':`<span class="note">${paidNames()}の担当 ${c.cleanN}回 × ${yen(D.rate)}${c.extra?` ＋ 追加作業 ${yen(c.extra)}`:''}</span>`}</div>
+     <label class="inp"><span class="note">¥</span><input type="number" min="0" step="1" inputmode="numeric" id="u-cleaning_override" data-util="cleaning_override" value="${c.fm.cleaning_override??''}" placeholder="${c.cleaningAuto}" aria-label="清掃費"></label>
+     <div class="sub">${c.fm.cleaning_override!=null?`自動計算では${yen(c.cleaningAuto)}です。欄を空にすると自動計算に戻ります。`:`自動で計算しています。違うときは金額を入れてください。${c.unassigned?`担当がまだ決まっていない清掃が${c.unassigned}回あります。`:''}`}</div></div>
     ${utilLine('electricity','電気')}${utilLine('gas','ガス')}${utilLine('water','水道')}${utilLine('other','その他')}
    </div>
    <p class="note">電気・ガス・水道は入力すると自動で保存されます。清掃費は清掃シフト帳の担当者・単価・追加作業から計算しています。</p>
