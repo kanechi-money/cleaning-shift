@@ -64,6 +64,9 @@ input[type=number],input[type=text],input[type=email],input[type=password],input
 .tag.est{background:var(--warn-soft);color:var(--warn)}
 .tag.man{background:var(--accent-soft);color:var(--accent)}
 .tag.cxl{background:var(--danger-soft);color:var(--danger)}
+.tag.rev{background:var(--accent-soft);color:var(--accent)}
+.revsum b{font-family:var(--font-num);color:var(--ink)}
+.tag.star{background:var(--warn-soft);color:var(--warn);letter-spacing:.02em}
 .cxl .amt,.cxl .dates{text-decoration:line-through;color:var(--muted)}
 .inp{display:flex;align-items:center;gap:6px}
 .inp input{width:8.5em;text-align:right;font-family:var(--font-num)}
@@ -130,9 +133,11 @@ async function loadAll(){
     sb.from('finance_months').select('*'),
     sb.from('extras').select('date,amount,staff_id'),
     sb.from('cleanings').select('reservation_id,staff_id'),
-    sb.from('profiles').select('id,name,role,active')]);
+    sb.from('profiles').select('id,name,role,active'),
+    sb.from('stay_events').select('kind,checkin,checkout,day,stars')]);
   const bad=r.find(x=>x.error);if(bad){console.error(bad.error);toast('データを読み込めませんでした。通信を確認してください');return false}
-  const [st,rs,am,fm,ex,cl,pf]=r.map(x=>x.data);
+  const [st,rs,am,fm,ex,cl,pf,evs]=r.map(x=>x.data);
+  D.events=evs||[];
   D.staff=(pf||[]).filter(p=>p.role==='staff'&&p.active);
   D.paid=st?.paid_staff||[];
   D.cleaner=Object.fromEntries((cl||[]).filter(c=>c.staff_id).map(c=>[c.reservation_id,c.staff_id]));
@@ -141,6 +146,28 @@ async function loadAll(){
   D.res=rs||[];D.amounts=am||[];D.extras=ex||[];
   D.months=Object.fromEntries((fm||[]).map(m=>[m.month,m]));
   return true;
+}
+
+/* 本当に泊まったかの確認。キャンセルのメールが届かない予約があるため、予約確定メールだけでは売上に入れない。
+   泊まり終えた予約：到着リマインダー・レビュー依頼・口コミのどれかがある
+   これからの予約：予約カレンダー（iCal）に載っている */
+function stayCheck(it,inCal){
+  const ev=D.events||[];
+  const rem=ev.some(e=>e.kind==='reminder'&&e.checkin===it.checkin);
+  const out=ev.some(e=>e.kind==='checkout'&&e.day>=it.checkout&&e.day<=add(it.checkout,2));
+  const rev=ev.some(e=>e.kind==='review'&&e.checkin===it.checkin);
+  const proof=[rem&&'到着リマインダー',out&&'レビュー依頼',rev&&'口コミ',inCal&&'予約カレンダー'].filter(Boolean);
+  if(it.checkout<=TODAY)return {ok:rem||out||rev||inCal,proof};
+  if(it.checkin<=TODAY)return {ok:rem||inCal,proof};
+  return {ok:inCal||rem||it.checkin<calFrom(),proof}; // カレンダーの記録が始まる前の日付はカレンダーで確かめられない
+}
+const calFrom=()=>D.res.filter(r=>r.source==='airbnb').reduce((m,r)=>r.checkin<m?r.checkin:m,'9999-12-31');
+const add=(s,n)=>{const d=new Date(s+'T00:00');d.setDate(d.getDate()+n);return ymd(d)};
+// 口コミ（Airbnb）。同じ滞在に「レビューが届きました」と「5つ星」の2通が来るので、滞在ごとにまとめる
+function reviewOf(it){
+  const rs=(D.events||[]).filter(e=>e.kind==='review'&&e.checkin===it.checkin);
+  if(!rs.length)return null;
+  return {stars:rs.reduce((m,e)=>Math.max(m,e.stars||0),0)||null};
 }
 
 /* 予約と金額を突き合わせて、売上・キャンセルの行を作る */
@@ -161,20 +188,23 @@ function buildItems(){
     if(a.excluded){items.push({k,excluded:true});return} // 売上に数えない予約（予約ごとに設定）
     const id='adj:'+a.code,m=manual[id];
     const amount=m??(alt?Math.round(a.payout/diff(a.checkin,a.checkout)*diff(ci,co)):a.payout);
-    items.push({src:'airbnb',id,k,checkin:ci,checkout:co,amount,kind:m!=null?'manual':alt?'changed':'auto',
-      orig:alt?{checkin:a.checkin,checkout:a.checkout,payout:a.payout}:null,code:a.code,cancelled:a.cancelled||!!r?.cancelled});
+    const it={src:'airbnb',id,k,checkin:ci,checkout:co,amount,kind:m!=null?'manual':alt?'changed':'auto',guest:a.guest||'',
+      orig:alt?{checkin:a.checkin,checkout:a.checkout,payout:a.payout}:null,code:a.code,cancelled:a.cancelled||!!r?.cancelled};
+    if(!it.cancelled){const v=stayCheck(it,!!r);it.proof=v.proof;it.unverified=a.verified===true?false:a.verified===false?true:!v.ok;it.forced=a.verified!=null}
+    items.push(it);
   });
   // 1泊あたりの平均（Airbnbの実績から）
-  const ok=items.filter(i=>!i.cancelled&&i.amount);
+  const ok=items.filter(i=>!i.cancelled&&!i.unverified&&i.amount);
   const nights=ok.reduce((s,i)=>s+diff(i.checkin,i.checkout),0);
   const avg=nights?ok.reduce((s,i)=>s+i.amount,0)/nights:0;
   D.avg=avg;
   D.res.filter(r=>r.source==='airbnb'&&!used.has(r.id)).forEach(r=>{
     items.push({src:'airbnb',checkin:r.checkin,checkout:r.checkout,amount:Math.round(avg*diff(r.checkin,r.checkout)),kind:'wait',cancelled:r.cancelled});
   });
-  const airNights=items.filter(i=>i.src==='airbnb'&&!i.cancelled);
+  const airNights=items.filter(i=>i.src==='airbnb'&&!i.cancelled&&!i.unverified);
   const overlaps=(a,b,c,d)=>a<d&&c<b;
-  D.res.filter(r=>r.source==='booking').forEach(r=>{
+  // Booking.comのカレンダーには「受付期間外」の長いブロック（例：2028年4月の30泊）も入るので、28泊以上は予約として扱わない
+  D.res.filter(r=>r.source==='booking'&&diff(r.checkin,r.checkout)<28).forEach(r=>{
     if(!r.cancelled&&airNights.some(i=>overlaps(r.checkin,r.checkout,i.checkin,i.checkout)))return; // Airbnb予約のブロック表示は除く
     const id='booking:'+r.id;const m=manual[id];
     items.push({src:'booking',id,checkin:r.checkin,checkout:r.checkout,amount:m??Math.round(avg*diff(r.checkin,r.checkout)),kind:m!=null?'manual':'est',cancelled:r.cancelled});
@@ -184,13 +214,15 @@ function buildItems(){
 
 function calc(m,items=buildItems()){
   const inMonth=items.filter(i=>i.checkin.startsWith(m)).sort((a,b)=>a.checkin<b.checkin?-1:1);
-  const live=inMonth.filter(i=>!i.cancelled),cxl=inMonth.filter(i=>i.cancelled);
+  const live=inMonth.filter(i=>!i.cancelled&&!i.unverified),cxl=inMonth.filter(i=>i.cancelled),unv=inMonth.filter(i=>!i.cancelled&&i.unverified);
+  live.forEach(i=>{if(i.src==='airbnb')i.review=reviewOf(i)});
+  const reviews=live.filter(i=>i.review).length,five=live.filter(i=>i.review?.stars===5).length;
   const sum=l=>l.reduce((s,i)=>s+(i.amount||0),0);
   const income=sum(live),air=sum(live.filter(i=>i.src==='airbnb')),bk=income-air;
   // 宿泊日数はその月に泊まった夜の数（月をまたぐ予約は月ごとに分ける）
   const first=m+'-01',d=new Date(first+'T00:00');d.setMonth(d.getMonth()+1);const next=ymd(d);
   const days=diff(first,next);
-  const nights=items.filter(i=>!i.cancelled).reduce((s,i)=>{const a=i.checkin>first?i.checkin:first,b=i.checkout<next?i.checkout:next;return s+Math.max(0,diff(a,b))},0);
+  const nights=items.filter(i=>!i.cancelled&&!i.unverified).reduce((s,i)=>{const a=i.checkin>first?i.checkin:first,b=i.checkout<next?i.checkout:next;return s+Math.max(0,diff(a,b))},0);
   // 清掃費は「清掃費に入れるスタッフ」が担当した清掃だけ（チェックアウト日の月）
   const paid=new Set(D.paid||[]);
   const outs=(D.res||[]).filter(r=>!r.cancelled&&r.checkout.startsWith(m));
@@ -203,7 +235,7 @@ function calc(m,items=buildItems()){
   const util=['electricity','gas','water','other'].reduce((s,k)=>s+(fm[k]||0),0);
   const cleaningAuto=cleanN*D.rate+extra;
   const cleaning=fm.cleaning_override??cleaningAuto; // 手入力があればそちらを使う
-  return {live,cxl,income,air,bk,nights,days,cleanN,unassigned,extra,cleaningAuto,cleaning,rent,wifi,fm,util,expense:rent+wifi+cleaning+util};
+  return {live,cxl,unv,reviews,five,income,air,bk,nights,days,cleanN,unassigned,extra,cleaningAuto,cleaning,rent,wifi,fm,util,expense:rent+wifi+cleaning+util};
 }
 
 const TAG={auto:['auto','自動'],wait:['est','見込み・メール待ち'],est:['est','見込み'],manual:['man','手入力'],changed:['est','日程変更・見込み']};
@@ -216,9 +248,12 @@ function incomeLine(i){
     :i.kind==='manual'?'金額を手入力しています。空にすると自動に戻ります。':'';
   return `<div class="line${i.cancelled?' cxl':''}">
    <div class="what"><span class="chip ${i.src}">${SRC[i.src]}</span><span class="dates">${md(i.checkin)}〜${md(i.checkout)}</span><span class="note">${n}泊</span>
-    ${i.cancelled?'<span class="tag cxl">キャンセル</span>':`<span class="tag ${t[0]}">${t[1]}</span>`}</div>
+    ${i.cancelled?'<span class="tag cxl">キャンセル</span>':i.unverified?'<span class="tag cxl">宿泊の確認なし</span>':`<span class="tag ${t[0]}">${t[1]}</span>`}
+    ${i.review?`<span class="tag rev">口コミ</span>${i.review.stars?`<span class="tag star">${'★'.repeat(i.review.stars)}${i.review.stars}</span>`:'<span class="tag rev">星はまだ非公開</span>'}`:''}</div>
    <div class="amt">${yen(i.amount||0)}</div>
-   ${!i.cancelled&&why&&i.id?`<div class="sub">${why}${edit}</div>`:''}
+   ${i.unverified?`<div class="sub">予約確定のメールはありますが、到着リマインダー・レビュー依頼・口コミ・予約カレンダーのどれにも記録がないため、売上に入れていません（キャンセルのメールが届かなかった予約の可能性があります）。確認コード ${h(i.code)}${i.guest?`・${h(i.guest)}さん`:''}<button class="btn ghost small" data-verify="${h(i.code)}" data-v="1">泊まったので売上に入れる</button></div>`
+    :!i.cancelled&&i.forced&&i.src==='airbnb'?`<div class="sub">手動で「泊まった」にしています。<button class="btn ghost small" data-verify="${h(i.code)}" data-v="">元に戻す</button></div>`
+    :!i.cancelled&&why&&i.id?`<div class="sub">${why}${edit}</div>`:''}
   </div>`;
 }
 function utilLine(k,label){
@@ -248,6 +283,7 @@ function renderYear(){
    ['経費合計',c=>c.expense,Y,'sum','total'],
    ['利益',c=>c.profit,Y,'sum','profit'],['累計利益',c=>c.cum,Y,'none'],
    ['回収率',c=>D.initial?c.cum/D.initial:null,P,'recover'],
+   ['口コミ数',c=>c.reviews,v=>v+'件'],['★5獲得数',c=>c.five,v=>v+'件'],
   ];
   const totalCell=([,fn,f,mode='sum'])=>{
     if(mode==='rate')return P(tot('nights')/tot('days'));
@@ -260,6 +296,7 @@ function renderYear(){
    <div class="tot"><span>年度の経費</span><b>${yen(tot('expense'))}</b></div>
    <div class="tot profit"><span>年度の利益</span><b class="${cum<0?'neg':''}">${yen(cum)}</b></div>
   </div>
+  <p class="note revsum" style="margin:0">口コミ <b>${tot('reviews')}</b>件・★5 <b>${tot('five')}</b>件（年度）</p>
   <div class="ytable"><table>
    <thead><tr><th scope="col">項目</th>${ms.map(m=>`<th scope="col"><button class="mlink" data-m="${m}">${+m.slice(5)}月</button></th>`).join('')}<th scope="col">合計</th></tr></thead>
    <tbody>${rows.map(r=>{const [label,fn,f,,cls='']=r;
@@ -304,10 +341,12 @@ function render(){
    <div class="tot"><span>支出</span><b>${yen(c.expense)}</b></div>
    <div class="tot profit"><span>収支</span><b class="${profit<0?'neg':''}">${yen(profit)}</b></div>
   </div>
+  <p class="note revsum" style="margin:0">口コミ <b>${c.reviews}</b>件・★5 <b>${c.five}</b>件（この月にチェックインした予約）</p>
   <p class="note" style="margin:0">売上はチェックイン日の月で数えています。${c.live.some(i=>i.kind!=='auto'&&i.kind!=='manual')?'「見込み」を含みます。':''}</p>
 
   <section class="sect"><h2><span>売上（${c.live.length}件）</span><span class="num">${yen(c.income)}</span></h2>
    <div class="ledger">${c.live.map(incomeLine).join('')||'<p class="empty">この月にチェックインする予約はありません。</p>'}</div>
+   ${c.unv.length?`<details open><summary>宿泊の確認がとれない予約 ${c.unv.length}件（合計に入れていません）</summary><div class="ledger">${c.unv.map(incomeLine).join('')}</div></details>`:''}
    ${c.cxl.length?`<details><summary>キャンセル ${c.cxl.length}件（合計に入れていません）</summary><div class="ledger">${c.cxl.map(incomeLine).join('')}</div></details>`:''}
   </section>
 
@@ -372,6 +411,8 @@ document.addEventListener('click',e=>{
     render()}
   else if(b.dataset.view){view=b.dataset.view;if(view==='year')fy=fyOf(month);try{localStorage.setItem('shushi-view',view)}catch(e){}render()}
   else if(b.dataset.m){month=b.dataset.m;view='month';render()}
+  else if(b.dataset.verify){const code=b.dataset.verify,v=b.dataset.v?true:null;const a=D.amounts.find(x=>x.code===code);if(a)a.verified=v;render();
+    sb.from('booking_amounts').update({verified:v}).eq('code',code).then(({error})=>toast(error?'保存できませんでした':v?'売上に入れました':'元に戻しました'))}
   else if(id==='sync')syncNow();
 });
 
