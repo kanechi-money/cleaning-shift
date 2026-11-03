@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font-size:14px}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>MINATO 収支表</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=Zen+Maru+Gothic:wght@700&family=IBM+Plex+Mono:wght@500&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>
+<style>
+/* Layout: one narrow column like a ledger book; month bar sticky; totals first, then income lines, then expense lines. Same palette as 清掃シフト帳 */
+:root{
+  --bg:#F2F4F1;--surface:#FFFFFF;--ink:#1D2724;--muted:#5F6B67;--line:#DCE2DE;
+  --accent:#1E6B62;--accent-ink:#FFFFFF;--accent-soft:#E1EFEC;
+  --air:#C8455A;--bkg:#2D5AA0;--warn:#A85F0C;--warn-soft:#FBEFD9;--ok:#2E7D4F;--ok-soft:#E2F2E7;--danger:#C2302F;--danger-soft:#FBE4E2;
+  --font-display:"Zen Maru Gothic","Hiragino Maru Gothic ProN",sans-serif;
+  --font-body:"Zen Kaku Gothic New","Hiragino Sans","Noto Sans JP",sans-serif;
+  --font-num:"IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#141A18;--surface:#1C2421;--ink:#E6ECE9;--muted:#9AA7A2;--line:#2C3733;
+  --accent:#5FB8AB;--accent-ink:#0E1A17;--accent-soft:#1F3531;
+  --air:#E57A8B;--bkg:#7FA3E0;--warn:#E0A456;--warn-soft:#3A2E1C;--ok:#6CC08E;--ok-soft:#1E3326;--danger:#F08A80;--danger-soft:#3D1F1D;color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#141A18;--surface:#1C2421;--ink:#E6ECE9;--muted:#9AA7A2;--line:#2C3733;
+  --accent:#5FB8AB;--accent-ink:#0E1A17;--accent-soft:#1F3531;
+  --air:#E57A8B;--bkg:#7FA3E0;--warn:#E0A456;--warn-soft:#3A2E1C;--ok:#6CC08E;--ok-soft:#1E3326;--danger:#F08A80;--danger-soft:#3D1F1D;color-scheme:dark}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.6}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+.wrap{max-width:720px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 56px}
+header.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);border-bottom:1px solid var(--line);padding-block:12px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h1{font-family:var(--font-display);font-size:1.3rem;margin:0;letter-spacing:.02em}
+.mon{display:flex;align-items:center;gap:6px}
+.mon b{font-family:var(--font-num);font-size:1.05rem;min-width:7.5em;text-align:center}
+button{font:inherit;cursor:pointer}
+.icon{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;width:34px;height:34px}
+.btn{border:0;background:var(--accent);color:var(--accent-ink);padding:8px 16px;border-radius:10px;font-weight:700}
+.btn.ghost{background:var(--surface);color:var(--accent);border:1px solid var(--line)}
+.btn.small{padding:4px 10px;font-size:.85rem}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+input[type=number],input[type=text],input[type=email],input[type=password],input[type=month]{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 8px;box-sizing:border-box}
+.num{font-family:var(--font-num);font-variant-numeric:tabular-nums}
+.totals{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-block:18px 6px}
+.tot{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:grid;gap:2px}
+.tot span{font-size:.8rem;color:var(--muted);letter-spacing:.04em}
+.tot b{font-family:var(--font-num);font-size:1.25rem;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.tot.profit{background:var(--accent-soft);border-color:transparent}
+.tot.profit b.neg{color:var(--danger)}
+.note{font-size:.82rem;color:var(--muted)}
+.sect{margin-top:26px}
+.sect h2{font-size:.9rem;margin:0 0 8px;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.sect h2 .num{font-size:1rem}
+.ledger{background:var(--surface);border:1px solid var(--line);border-radius:12px}
+.line{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:10px 14px;border-top:1px solid var(--line);align-items:center}
+.line:first-child{border-top:0}
+.line .what{min-width:0;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline}
+.line .amt{font-family:var(--font-num);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.line .sub{grid-column:1/-1;font-size:.8rem;color:var(--muted)}
+.chip{font-size:.72rem;font-weight:700;letter-spacing:.03em}
+.chip.airbnb{color:var(--air)}.chip.booking{color:var(--bkg)}
+.tag{font-size:.72rem;padding:1px 8px;border-radius:99px;white-space:nowrap}
+.tag.auto{background:var(--ok-soft);color:var(--ok)}
+.tag.est{background:var(--warn-soft);color:var(--warn)}
+.tag.man{background:var(--accent-soft);color:var(--accent)}
+.tag.cxl{background:var(--danger-soft);color:var(--danger)}
+.cxl .amt,.cxl .dates{text-decoration:line-through;color:var(--muted)}
+.inp{display:flex;align-items:center;gap:6px}
+.inp input{width:8.5em;text-align:right;font-family:var(--font-num)}
+.empty{padding:14px;color:var(--muted);margin:0}
+details summary{cursor:pointer;color:var(--muted);font-size:.85rem;padding:6px 2px}
+.foot{margin-top:28px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;display:grid;gap:10px}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:8px 16px;border-radius:10px;font-size:.9rem;z-index:20;max-width:calc(100% - 32px)}
+@media (max-width:460px){.totals{grid-template-columns:1fr 1fr}.tot.profit{grid-column:1/-1}}
+</style>
+</head><body>
+
+<div class="wrap">
+ <header class="bar">
+  <h1>MINATO 収支表</h1>
+  <div class="mon" id="mon" hidden>
+   <button class="icon" id="prev" aria-label="前の月">‹</button><b id="mlabel"></b><button class="icon" id="next" aria-label="次の月">›</button>
+  </div>
+ </header>
+ <main id="main"><p class="empty">読み込み中…</p></main>
+</div>
+<div id="toast" hidden></div>
+
+<script>
+const $=s=>document.querySelector(s);
+const h=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ymd=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const diff=(a,b)=>Math.round((new Date(b+'T00:00')-new Date(a+'T00:00'))/864e5);
+const WD='日月火水木金土';
+const md=s=>{const d=new Date(s+'T00:00');return `${d.getMonth()+1}/${d.getDate()}(${WD[d.getDay()]})`};
+const yen=n=>(n<0?'-¥':'¥')+Math.abs(Math.round(n)).toLocaleString('ja-JP');
+const TODAY=ymd(new Date());
+const SRC={airbnb:'Airbnb',booking:'Booking.com'};
+let tt;function toast(m){const t=$('#toast');t.textContent=m;t.hidden=false;clearTimeout(tt);tt=setTimeout(()=>t.hidden=true,3000)}
+
+const SUPABASE_URL='https://afxbacplkhnovsygiune.supabase.co';
+const SUPABASE_KEY='sb_publishable_VH73iuL727rYtlWkE3zu3w_qZvXn-pY'; // 公開用キー（ブラウザに置いてよいもの）
+let sb=null,ME=null;
+let D={res:[],amounts:[],months:{},extras:[],rate:3000,rent:45500,rentStart:'2027-02',lastSync:null};
+let month=TODAY.slice(0,7);
+
+async function loadAll(){
+  const r=await Promise.all([
+    sb.from('settings').select('*').eq('id',1).maybeSingle(),
+    sb.from('reservations').select('id,source,checkin,checkout,cancelled'),
+    sb.from('booking_amounts').select('*'),
+    sb.from('finance_months').select('*'),
+    sb.from('extras').select('date,amount')]);
+  const bad=r.find(x=>x.error);if(bad){console.error(bad.error);toast('データを読み込めませんでした。通信を確認してください');return false}
+  const [st,rs,am,fm,ex]=r.map(x=>x.data);
+  D.rate=st?.rate??3000;D.rent=st?.rent??45500;D.rentStart=st?.rent_start||'2027-02';D.lastSync=st?.last_sync||null;
+  D.res=rs||[];D.amounts=am||[];D.extras=ex||[];
+  D.months=Object.fromEntries((fm||[]).map(m=>[m.month,m]));
+  return true;
+}
+
+/* 予約と金額を突き合わせて、売上・キャンセルの行を作る */
+function buildItems(){
+  const amts=D.amounts.filter(a=>a.source==='airbnb'&&a.checkin);
+  const manual=Object.fromEntries(D.amounts.filter(a=>a.source==='booking_manual').map(a=>[a.code,a.payout]));
+  const key=(a,b)=>a+'|'+b;
+  const resAir={};D.res.filter(r=>r.source==='airbnb').forEach(r=>{resAir[key(r.checkin,r.checkout)]=r});
+  const used=new Set(),items=[];
+  // Airbnb：メールの金額（ホスティング収入）を正とする
+  amts.sort((a,b)=>(a.mail_at||'')<(b.mail_at||'')?1:-1).forEach(a=>{
+    const k=key(a.checkin,a.checkout);const r=resAir[k];
+    if(items.some(i=>i.k===k))return; // 同じ日程は最新のメールだけ使う
+    if(r)used.add(r.id);
+    items.push({src:'airbnb',k,checkin:a.checkin,checkout:a.checkout,amount:a.payout,kind:'auto',code:a.code,cancelled:a.cancelled||!!r?.cancelled});
+  });
+  // 1泊あたりの平均（Airbnbの実績から）
+  const ok=items.filter(i=>!i.cancelled&&i.amount);
+  const nights=ok.reduce((s,i)=>s+diff(i.checkin,i.checkout),0);
+  const avg=nights?ok.reduce((s,i)=>s+i.amount,0)/nights:0;
+  D.avg=avg;
+  D.res.filter(r=>r.source==='airbnb'&&!used.has(r.id)).forEach(r=>{
+    items.push({src:'airbnb',checkin:r.checkin,checkout:r.checkout,amount:Math.round(avg*diff(r.checkin,r.checkout)),kind:'wait',cancelled:r.cancelled});
+  });
+  const airNights=items.filter(i=>i.src==='airbnb'&&!i.cancelled);
+  const overlaps=(a,b,c,d)=>a<d&&c<b;
+  D.res.filter(r=>r.source==='booking').forEach(r=>{
+    if(!r.cancelled&&airNights.some(i=>overlaps(r.checkin,r.checkout,i.checkin,i.checkout)))return; // Airbnb予約のブロック表示は除く
+    const id='booking:'+r.id;const m=manual[id];
+    items.push({src:'booking',id,checkin:r.checkin,checkout:r.checkout,amount:m??Math.round(avg*diff(r.checkin,r.checkout)),kind:m!=null?'manual':'est',cancelled:r.cancelled});
+  });
+  return items;
+}
+
+function calc(m){
+  const items=buildItems();
+  const inMonth=items.filter(i=>i.checkin.startsWith(m)).sort((a,b)=>a.checkin<b.checkin?-1:1);
+  const live=inMonth.filter(i=>!i.cancelled),cxl=inMonth.filter(i=>i.cancelled);
+  const income=live.reduce((s,i)=>s+(i.amount||0),0);
+  const cleanN=items.filter(i=>!i.cancelled&&i.checkout.startsWith(m)).length;
+  const extra=D.extras.filter(e=>e.date.startsWith(m)).reduce((s,e)=>s+e.amount,0);
+  const fm=D.months[m]||{};
+  const rent=m>=D.rentStart?D.rent:0;
+  const util=['electricity','gas','water','other'].reduce((s,k)=>s+(fm[k]||0),0);
+  const cleaning=cleanN*D.rate+extra;
+  return {live,cxl,income,cleanN,extra,cleaning,rent,fm,util,expense:rent+cleaning+util};
+}
+
+const TAG={auto:['auto','自動'],wait:['est','見込み・メール待ち'],est:['est','見込み'],manual:['man','手入力']};
+function incomeLine(i){
+  const n=diff(i.checkin,i.checkout),t=TAG[i.kind];
+  const edit=i.src==='booking'?`<label class="inp note">実際の金額<input type="number" min="0" step="1" inputmode="numeric" id="bk-${h(i.id)}" data-bk="${h(i.id)}" value="${i.kind==='manual'?i.amount:''}" placeholder="${i.amount}"></label>`:'';
+  return `<div class="line${i.cancelled?' cxl':''}">
+   <div class="what"><span class="chip ${i.src}">${SRC[i.src]}</span><span class="dates">${md(i.checkin)}〜${md(i.checkout)}</span><span class="note">${n}泊</span>
+    ${i.cancelled?'<span class="tag cxl">キャンセル</span>':`<span class="tag ${t[0]}">${t[1]}</span>`}</div>
+   <div class="amt">${yen(i.amount||0)}</div>
+   ${!i.cancelled&&i.src==='booking'?`<div class="sub">Booking.comのメールには金額が書かれていないため、Airbnbの1泊平均で計算しています。${edit}</div>`:''}
+  </div>`;
+}
+function utilLine(k,label){
+  const v=calc(month).fm[k];
+  return `<div class="line"><div class="what">${label}</div>
+   <label class="inp"><span class="note">¥</span><input type="number" min="0" step="1" inputmode="numeric" id="u-${k}" data-util="${k}" value="${v??''}" placeholder="未入力" aria-label="${label}"></label></div>`;
+}
+
+function render(){
+  const [y,mo]=month.split('-').map(Number);
+  $('#mon').hidden=false;$('#mlabel').textContent=`${y}年${mo}月`;
+  const c=calc(month);
+  const profit=c.income-c.expense;
+  const rs=D.rentStart.split('-').map(Number);
+  $('#main').innerHTML=`
+  <div class="totals">
+   <div class="tot"><span>売上</span><b>${yen(c.income)}</b></div>
+   <div class="tot"><span>支出</span><b>${yen(c.expense)}</b></div>
+   <div class="tot profit"><span>収支</span><b class="${profit<0?'neg':''}">${yen(profit)}</b></div>
+  </div>
+  <p class="note" style="margin:0">売上はチェックイン日の月で数えています。${c.live.some(i=>i.kind!=='auto'&&i.kind!=='manual')?'「見込み」を含みます。':''}</p>
+
+  <section class="sect"><h2><span>売上（${c.live.length}件）</span><span class="num">${yen(c.income)}</span></h2>
+   <div class="ledger">${c.live.map(incomeLine).join('')||'<p class="empty">この月にチェックインする予約はありません。</p>'}</div>
+   ${c.cxl.length?`<details><summary>キャンセル ${c.cxl.length}件（合計に入れていません）</summary><div class="ledger">${c.cxl.map(incomeLine).join('')}</div></details>`:''}
+  </section>
+
+  <section class="sect"><h2><span>支出</span><span class="num">${yen(c.expense)}</span></h2>
+   <div class="ledger">
+    <div class="line"><div class="what">家賃${c.rent?'':`<span class="note">${rs[0]}年${rs[1]}月から発生</span>`}</div><div class="amt">${yen(c.rent)}</div></div>
+    <div class="line"><div class="what">清掃費<span class="note">${c.cleanN}回 × ${yen(D.rate)}${c.extra?` ＋ 追加作業 ${yen(c.extra)}`:''}</span></div><div class="amt">${yen(c.cleaning)}</div></div>
+    ${utilLine('electricity','電気')}${utilLine('gas','ガス')}${utilLine('water','水道')}${utilLine('other','その他')}
+   </div>
+   <p class="note">電気・ガス・水道は入力すると自動で保存されます。清掃費は清掃シフト帳の単価と追加作業から計算しています。</p>
+  </section>
+
+  <div class="foot">
+   <button class="btn ghost small" id="sync">今すぐ予約を取り込む</button>
+   <span class="note">予約の最終取り込み：${D.lastSync?new Date(D.lastSync).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'—'}・Airbnb 1泊平均 ${yen(D.avg||0)}</span>
+  </div>
+  <details class="sect"><summary>家賃の設定</summary>
+   <div class="card">
+    <label>家賃（月額）<input type="number" min="0" id="s-rent" value="${D.rent}" style="width:9em"></label>
+    <label>家賃が発生する月<input type="month" id="s-start" value="${D.rentStart}"></label>
+   </div>
+  </details>`;
+}
+
+async function saveUtil(k,el){
+  const v=el.value===''?null:Math.max(0,Math.round(+el.value));
+  const row={...(D.months[month]||{month}),[k]:v,updated_at:new Date().toISOString()};
+  D.months[month]=row;render();
+  const {error}=await sb.from('finance_months').upsert(row);
+  toast(error?'保存できませんでした。通信を確認してください':'保存しました');
+}
+async function saveBooking(id,el){
+  if(el.value===''){
+    D.amounts=D.amounts.filter(a=>a.code!==id);render();
+    const {error}=await sb.from('booking_amounts').delete().eq('code',id);toast(error?'保存できませんでした':'見込みに戻しました');return}
+  const row={code:id,source:'booking_manual',payout:Math.max(0,Math.round(+el.value)),updated_at:new Date().toISOString()};
+  D.amounts=[...D.amounts.filter(a=>a.code!==id),row];render();
+  const {error}=await sb.from('booking_amounts').upsert(row);toast(error?'保存できませんでした':'保存しました');
+}
+async function saveSetting(patch){
+  Object.assign(D,patch.rent!=null?{rent:patch.rent}:{},patch.rent_start?{rentStart:patch.rent_start}:{});render();
+  const {error}=await sb.from('settings').update(patch).eq('id',1);toast(error?'保存できませんでした':'保存しました');
+}
+async function syncNow(){
+  toast('予約を取り込んでいます…');
+  const {error}=await sb.rpc('sync_now');if(error){toast('取り込めませんでした');return}
+  for(let i=0;i<6;i++){await new Promise(r=>setTimeout(r,2500));const {data,error:e}=await sb.rpc('sync_collect');if(e||!data.pending)break}
+  await loadAll();render();toast('予約を取り込みました');
+}
+
+document.addEventListener('change',e=>{
+  const el=e.target;
+  if(el.dataset.util)saveUtil(el.dataset.util,el);
+  else if(el.dataset.bk)saveBooking(el.dataset.bk,el);
+  else if(el.id==='s-rent')saveSetting({rent:Math.max(0,Math.round(+el.value||0))});
+  else if(el.id==='s-start'&&el.value)saveSetting({rent_start:el.value});
+});
+document.addEventListener('click',e=>{
+  const id=e.target.closest('button')?.id;
+  if(id==='prev'||id==='next'){const d=new Date(month+'-01T00:00');d.setMonth(d.getMonth()+(id==='next'?1:-1));month=ymd(d).slice(0,7);render()}
+  else if(id==='sync')syncNow();
+});
+
+function renderLogin(){
+  $('#mon').hidden=true;
+  $('#main').innerHTML=`<form id="authf" class="card" style="margin-top:24px;max-width:420px">
+   <p class="note" style="margin:0">清掃シフト帳と同じオーナーのアカウントでログインしてください。</p>
+   <label>メールアドレス<input type="email" id="au-mail" required autocomplete="email" style="width:100%"></label>
+   <label>パスワード<input type="password" id="au-pass" required autocomplete="current-password" style="width:100%"></label>
+   <button class="btn" type="submit">ログイン</button></form>`;
+  $('#authf').onsubmit=async e=>{e.preventDefault();
+    const {error}=await sb.auth.signInWithPassword({email:$('#au-mail').value.trim(),password:$('#au-pass').value});
+    if(error)toast('メールアドレスかパスワードが違います')};
+}
+let startedFor=null;
+async function start(session){
+  if(!session){startedFor=null;renderLogin();return}
+  if(startedFor===session.user.id)return;startedFor=session.user.id;
+  $('#main').innerHTML='<p class="empty">読み込み中…</p>';
+  const {data:p}=await sb.from('profiles').select('role,active').eq('id',session.user.id).maybeSingle();
+  if(p?.role!=='owner'||!p.active){$('#main').innerHTML='<p class="empty">収支表はオーナーだけが見られます。</p>';return}
+  if(await loadAll())render();
+}
+sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+sb.auth.onAuthStateChange((ev,s)=>{if(ev==='SIGNED_IN'||ev==='SIGNED_OUT'||ev==='INITIAL_SESSION')setTimeout(()=>start(s),0)});
+document.addEventListener('visibilitychange',async()=>{if(document.visibilityState==='visible'&&startedFor&&!document.activeElement?.matches('input')){if(await loadAll())render()}});
+</script>
+</body></html>
