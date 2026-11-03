@@ -235,12 +235,11 @@ function renderYear(){
    ['Wi-Fi',c=>c.wifi,Y],['清掃代',c=>c.cleaning,Y],['その他',fmk('other'),Y],
    ['経費合計',c=>c.expense,Y,'sum','total'],
    ['利益',c=>c.profit,Y,'sum','profit'],['累計利益',c=>c.cum,Y,'none'],
-   ['収支差率',c=>c.expense?c.profit/c.expense:null,P,'diff'],
-   ...(D.initial?[['回収率',c=>c.cum/D.initial,P,'none']]:[]),
+   ['回収率',c=>D.initial?c.cum/D.initial:null,P,'recover'],
   ];
   const totalCell=([,fn,f,mode='sum'])=>{
     if(mode==='rate')return P(tot('nights')/tot('days'));
-    if(mode==='diff'){const e=tot('expense');return e?P((tot('income')-e)/e):''}
+    if(mode==='recover')return D.initial?P(cum/D.initial):'';
     return mode==='none'?'':f(T(fn))};
   const neg=v=>typeof v==='number'&&v<0;
   $('#main').innerHTML=`
@@ -254,7 +253,7 @@ function renderYear(){
    <tbody>${rows.map(r=>{const [label,fn,f,,cls='']=r;
      return `<tr class="${cls}"><th scope="row">${label}</th>${cs.map(c=>{const v=fn(c);return `<td class="${neg(v)?'neg':''}">${f(v)}</td>`}).join('')}<td class="sum">${totalCell(r)}</td></tr>`}).join('')}</tbody>
   </table></div>
-  <p class="note">月の名前を押すと、その月の明細が開きます。Airbnbの売上は手数料を引いた受取額です。「見込み」の金額も合計に入っています。</p>
+  <p class="note">回収率は、累計利益が初期費用${D.initial?yen(D.initial):'（未入力）'}の何％まで戻ったかです。月の名前を押すと、その月の明細が開きます。Airbnbの売上は手数料を引いた受取額です。「見込み」の金額も合計に入っています。</p>
   ${footHtml()}`;
 }
 
