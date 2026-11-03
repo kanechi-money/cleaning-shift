@@ -71,6 +71,21 @@ input[type=number],input[type=text],input[type=email],input[type=password],input
 details summary{cursor:pointer;color:var(--muted);font-size:.85rem;padding:6px 2px}
 .foot{margin-top:28px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;display:grid;gap:10px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)}
+.seg button{border:0;background:none;color:var(--muted);padding:6px 12px;font-weight:500}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+.ytable{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:12px;margin-block:14px 8px}
+.ytable table{border-collapse:separate;border-spacing:0;font-size:.85rem;min-width:100%}
+.ytable th,.ytable td{padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+.ytable td{text-align:right;font-family:var(--font-num);font-variant-numeric:tabular-nums}
+.ytable tbody th{text-align:left;font-weight:500;position:sticky;left:0;background:var(--surface);z-index:1}
+.ytable thead th{background:var(--accent-soft);color:var(--accent);font-weight:700;position:sticky;top:0}
+.ytable thead th:first-child{left:0;z-index:2}
+.ytable tr.total th,.ytable tr.total td{font-weight:700;background:var(--accent-soft)}
+.ytable tr.profit th,.ytable tr.profit td{font-weight:700;background:var(--warn-soft)}
+.ytable td.sum{border-left:1px solid var(--line);font-weight:700}
+.ytable td.neg{color:var(--danger)}
+.mlink{border:0;background:none;color:inherit;font:inherit;font-weight:700;padding:0;text-decoration:underline;text-underline-offset:3px}
 #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:8px 16px;border-radius:10px;font-size:.9rem;z-index:20;max-width:calc(100% - 32px)}
 @media (max-width:460px){.totals{grid-template-columns:1fr 1fr}.tot.profit{grid-column:1/-1}}
 </style>
@@ -79,6 +94,7 @@ details summary{cursor:pointer;color:var(--muted);font-size:.85rem;padding:6px 2
 <div class="wrap">
  <header class="bar">
   <h1>MINATO 収支表</h1>
+  <div class="seg" id="views" role="group" aria-label="表示" hidden><button data-view="month">月の明細</button><button data-view="year">年間一覧</button></div>
   <div class="mon" id="mon" hidden>
    <button class="icon" id="prev" aria-label="前の月">‹</button><b id="mlabel"></b><button class="icon" id="next" aria-label="次の月">›</button>
   </div>
@@ -103,7 +119,8 @@ const SUPABASE_URL='https://afxbacplkhnovsygiune.supabase.co';
 const SUPABASE_KEY='sb_publishable_VH73iuL727rYtlWkE3zu3w_qZvXn-pY'; // 公開用キー（ブラウザに置いてよいもの）
 let sb=null,ME=null;
 let D={res:[],amounts:[],months:{},extras:[],rate:3000,rent:45500,rentStart:'2027-02',lastSync:null};
-let month=TODAY.slice(0,7);
+let month=TODAY.slice(0,7),view='month',fy=+TODAY.slice(5,7)>=4?+TODAY.slice(0,4):+TODAY.slice(0,4)-1;
+try{if(localStorage.getItem('shushi-view')==='year')view='year'}catch(e){}
 
 async function loadAll(){
   const r=await Promise.all([
@@ -115,6 +132,7 @@ async function loadAll(){
   const bad=r.find(x=>x.error);if(bad){console.error(bad.error);toast('データを読み込めませんでした。通信を確認してください');return false}
   const [st,rs,am,fm,ex]=r.map(x=>x.data);
   D.rate=st?.rate??3000;D.rent=st?.rent??45500;D.rentStart=st?.rent_start||'2027-02';D.lastSync=st?.last_sync||null;
+  D.wifi=st?.wifi??4200;D.wifiStart=st?.wifi_start??'2026-08';D.initial=st?.initial_cost??null;
   D.res=rs||[];D.amounts=am||[];D.extras=ex||[];
   D.months=Object.fromEntries((fm||[]).map(m=>[m.month,m]));
   return true;
@@ -152,18 +170,23 @@ function buildItems(){
   return items;
 }
 
-function calc(m){
-  const items=buildItems();
+function calc(m,items=buildItems()){
   const inMonth=items.filter(i=>i.checkin.startsWith(m)).sort((a,b)=>a.checkin<b.checkin?-1:1);
   const live=inMonth.filter(i=>!i.cancelled),cxl=inMonth.filter(i=>i.cancelled);
-  const income=live.reduce((s,i)=>s+(i.amount||0),0);
+  const sum=l=>l.reduce((s,i)=>s+(i.amount||0),0);
+  const income=sum(live),air=sum(live.filter(i=>i.src==='airbnb')),bk=income-air;
+  // 宿泊日数はその月に泊まった夜の数（月をまたぐ予約は月ごとに分ける）
+  const first=m+'-01',d=new Date(first+'T00:00');d.setMonth(d.getMonth()+1);const next=ymd(d);
+  const days=diff(first,next);
+  const nights=items.filter(i=>!i.cancelled).reduce((s,i)=>{const a=i.checkin>first?i.checkin:first,b=i.checkout<next?i.checkout:next;return s+Math.max(0,diff(a,b))},0);
   const cleanN=items.filter(i=>!i.cancelled&&i.checkout.startsWith(m)).length;
   const extra=D.extras.filter(e=>e.date.startsWith(m)).reduce((s,e)=>s+e.amount,0);
   const fm=D.months[m]||{};
   const rent=m>=D.rentStart?D.rent:0;
+  const wifi=D.wifiStart&&m>=D.wifiStart?D.wifi:0;
   const util=['electricity','gas','water','other'].reduce((s,k)=>s+(fm[k]||0),0);
   const cleaning=cleanN*D.rate+extra;
-  return {live,cxl,income,cleanN,extra,cleaning,rent,fm,util,expense:rent+cleaning+util};
+  return {live,cxl,income,air,bk,nights,days,cleanN,extra,cleaning,rent,wifi,fm,util,expense:rent+wifi+cleaning+util};
 }
 
 const TAG={auto:['auto','自動'],wait:['est','見込み・メール待ち'],est:['est','見込み'],manual:['man','手入力']};
@@ -183,9 +206,71 @@ function utilLine(k,label){
    <label class="inp"><span class="note">¥</span><input type="number" min="0" step="1" inputmode="numeric" id="u-${k}" data-util="${k}" value="${v??''}" placeholder="未入力" aria-label="${label}"></label></div>`;
 }
 
+/* 年度（4月〜翌3月）の一覧。スプレッドシート「収支管理（自分用）」と同じ並び */
+const fyOf=m=>{const [y,mo]=m.split('-').map(Number);return mo>=4?y:y-1};
+function renderYear(){
+  $('#mlabel').textContent=`${fy}年度`;
+  const items=buildItems();
+  const ms=Array.from({length:12},(_,i)=>{const d=new Date(fy,3+i,1);return ymd(d).slice(0,7)});
+  const cs=ms.map(m=>calc(m,items));
+  let cum=0;cs.forEach(c=>{c.profit=c.income-c.expense;cum+=c.profit;c.cum=cum});
+  const tot=k=>cs.reduce((s,c)=>s+(c[k]||0),0);
+  const fmk=k=>c=>c.fm[k]??null;
+  const Y=v=>v==null?'':yen(v),P=v=>v==null||!isFinite(v)?'':(v*100).toFixed(1)+'%';
+  const T=(fn,mode='sum')=>mode==='none'?'':mode==='sum'?cs.reduce((s,c)=>s+(fn(c)||0),0):'';
+  const rows=[
+   ['Booking売上',c=>c.bk,Y],['Airbnb売上',c=>c.air,Y],['売上合計',c=>c.income,Y,'sum','total'],
+   ['宿泊日数',c=>c.nights,v=>v],['日数',c=>c.days,v=>v],
+   ['稼働率',c=>c.nights/c.days,P,'rate','total'],
+   ['家賃',c=>c.rent,Y],['水道代',fmk('water'),Y],['ガス代',fmk('gas'),Y],['電気代',fmk('electricity'),Y],
+   ['Wi-Fi',c=>c.wifi,Y],['清掃代',c=>c.cleaning,Y],['その他',fmk('other'),Y],
+   ['経費合計',c=>c.expense,Y,'sum','total'],
+   ['利益',c=>c.profit,Y,'sum','profit'],['累計利益',c=>c.cum,Y,'none'],
+   ['収支差率',c=>c.expense?c.profit/c.expense:null,P,'diff'],
+   ...(D.initial?[['回収率',c=>c.cum/D.initial,P,'none']]:[]),
+  ];
+  const totalCell=([,fn,f,mode='sum'])=>{
+    if(mode==='rate')return P(tot('nights')/tot('days'));
+    if(mode==='diff'){const e=tot('expense');return e?P((tot('income')-e)/e):''}
+    return mode==='none'?'':f(T(fn))};
+  const neg=v=>typeof v==='number'&&v<0;
+  $('#main').innerHTML=`
+  <div class="totals">
+   <div class="tot"><span>年度の売上</span><b>${yen(tot('income'))}</b></div>
+   <div class="tot"><span>年度の経費</span><b>${yen(tot('expense'))}</b></div>
+   <div class="tot profit"><span>年度の利益</span><b class="${cum<0?'neg':''}">${yen(cum)}</b></div>
+  </div>
+  <div class="ytable"><table>
+   <thead><tr><th scope="col">項目</th>${ms.map(m=>`<th scope="col"><button class="mlink" data-m="${m}">${+m.slice(5)}月</button></th>`).join('')}<th scope="col">合計</th></tr></thead>
+   <tbody>${rows.map(r=>{const [label,fn,f,,cls='']=r;
+     return `<tr class="${cls}"><th scope="row">${label}</th>${cs.map(c=>{const v=fn(c);return `<td class="${neg(v)?'neg':''}">${f(v)}</td>`}).join('')}<td class="sum">${totalCell(r)}</td></tr>`}).join('')}</tbody>
+  </table></div>
+  <p class="note">月の名前を押すと、その月の明細が開きます。Airbnbの売上は手数料を引いた受取額です。「見込み」の金額も合計に入っています。</p>
+  ${footHtml()}`;
+}
+
+function footHtml(){
+  return `<div class="foot">
+   <button class="btn ghost small" id="sync">今すぐ予約を取り込む</button>
+   <span class="note">予約の最終取り込み：${D.lastSync?new Date(D.lastSync).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'—'}・Airbnb 1泊平均 ${yen(D.avg||0)}</span>
+  </div>
+  <details class="sect"><summary>家賃・Wi-Fi・初期費用の設定</summary>
+   <div class="card">
+    <label>家賃（月額）<input type="number" min="0" id="s-rent" value="${D.rent}" style="width:9em"></label>
+    <label>家賃が発生する月<input type="month" id="s-start" value="${D.rentStart}"></label>
+    <label>Wi-Fi（月額）<input type="number" min="0" id="s-wifi" value="${D.wifi}" style="width:9em"></label>
+    <label>Wi-Fiが発生する月<input type="month" id="s-wstart" value="${D.wifiStart||''}"></label>
+    <label>初期費用（回収率の計算に使います）<input type="number" min="0" id="s-init" value="${D.initial??''}" placeholder="未入力" style="width:10em"></label>
+   </div>
+  </details>`;
+}
+
 function render(){
+  $('#mon').hidden=false;$('#views').hidden=false;
+  document.querySelectorAll('#views button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.view===view));
+  if(view==='year')return renderYear();
   const [y,mo]=month.split('-').map(Number);
-  $('#mon').hidden=false;$('#mlabel').textContent=`${y}年${mo}月`;
+  $('#mlabel').textContent=`${y}年${mo}月`;
   const c=calc(month);
   const profit=c.income-c.expense;
   const rs=D.rentStart.split('-').map(Number);
@@ -205,22 +290,13 @@ function render(){
   <section class="sect"><h2><span>支出</span><span class="num">${yen(c.expense)}</span></h2>
    <div class="ledger">
     <div class="line"><div class="what">家賃${c.rent?'':`<span class="note">${rs[0]}年${rs[1]}月から発生</span>`}</div><div class="amt">${yen(c.rent)}</div></div>
+    <div class="line"><div class="what">Wi-Fi</div><div class="amt">${yen(c.wifi)}</div></div>
     <div class="line"><div class="what">清掃費<span class="note">${c.cleanN}回 × ${yen(D.rate)}${c.extra?` ＋ 追加作業 ${yen(c.extra)}`:''}</span></div><div class="amt">${yen(c.cleaning)}</div></div>
     ${utilLine('electricity','電気')}${utilLine('gas','ガス')}${utilLine('water','水道')}${utilLine('other','その他')}
    </div>
    <p class="note">電気・ガス・水道は入力すると自動で保存されます。清掃費は清掃シフト帳の単価と追加作業から計算しています。</p>
   </section>
-
-  <div class="foot">
-   <button class="btn ghost small" id="sync">今すぐ予約を取り込む</button>
-   <span class="note">予約の最終取り込み：${D.lastSync?new Date(D.lastSync).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'—'}・Airbnb 1泊平均 ${yen(D.avg||0)}</span>
-  </div>
-  <details class="sect"><summary>家賃の設定</summary>
-   <div class="card">
-    <label>家賃（月額）<input type="number" min="0" id="s-rent" value="${D.rent}" style="width:9em"></label>
-    <label>家賃が発生する月<input type="month" id="s-start" value="${D.rentStart}"></label>
-   </div>
-  </details>`;
+  ${footHtml()}`;
 }
 
 async function saveUtil(k,el){
@@ -239,7 +315,8 @@ async function saveBooking(id,el){
   const {error}=await sb.from('booking_amounts').upsert(row);toast(error?'保存できませんでした':'保存しました');
 }
 async function saveSetting(patch){
-  Object.assign(D,patch.rent!=null?{rent:patch.rent}:{},patch.rent_start?{rentStart:patch.rent_start}:{});render();
+  const map={rent:'rent',rent_start:'rentStart',wifi:'wifi',wifi_start:'wifiStart',initial_cost:'initial'};
+  Object.entries(patch).forEach(([k,v])=>D[map[k]]=v);render();
   const {error}=await sb.from('settings').update(patch).eq('id',1);toast(error?'保存できませんでした':'保存しました');
 }
 async function syncNow(){
@@ -255,10 +332,19 @@ document.addEventListener('change',e=>{
   else if(el.dataset.bk)saveBooking(el.dataset.bk,el);
   else if(el.id==='s-rent')saveSetting({rent:Math.max(0,Math.round(+el.value||0))});
   else if(el.id==='s-start'&&el.value)saveSetting({rent_start:el.value});
+  else if(el.id==='s-wifi')saveSetting({wifi:Math.max(0,Math.round(+el.value||0))});
+  else if(el.id==='s-wstart')saveSetting({wifi_start:el.value||null});
+  else if(el.id==='s-init')saveSetting({initial_cost:el.value===''?null:Math.max(0,Math.round(+el.value))});
 });
 document.addEventListener('click',e=>{
-  const id=e.target.closest('button')?.id;
-  if(id==='prev'||id==='next'){const d=new Date(month+'-01T00:00');d.setMonth(d.getMonth()+(id==='next'?1:-1));month=ymd(d).slice(0,7);render()}
+  const b=e.target.closest('button');if(!b)return;
+  const id=b.id,step=id==='next'?1:-1;
+  if(id==='prev'||id==='next'){
+    if(view==='year')fy+=step;
+    else{const d=new Date(month+'-01T00:00');d.setMonth(d.getMonth()+step);month=ymd(d).slice(0,7)}
+    render()}
+  else if(b.dataset.view){view=b.dataset.view;if(view==='year')fy=fyOf(month);try{localStorage.setItem('shushi-view',view)}catch(e){}render()}
+  else if(b.dataset.m){month=b.dataset.m;view='month';render()}
   else if(id==='sync')syncNow();
 });
 
