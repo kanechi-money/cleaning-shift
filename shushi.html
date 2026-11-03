@@ -128,9 +128,14 @@ async function loadAll(){
     sb.from('reservations').select('id,source,checkin,checkout,cancelled'),
     sb.from('booking_amounts').select('*'),
     sb.from('finance_months').select('*'),
-    sb.from('extras').select('date,amount')]);
+    sb.from('extras').select('date,amount,staff_id'),
+    sb.from('cleanings').select('reservation_id,staff_id'),
+    sb.from('profiles').select('id,name,role,active')]);
   const bad=r.find(x=>x.error);if(bad){console.error(bad.error);toast('データを読み込めませんでした。通信を確認してください');return false}
-  const [st,rs,am,fm,ex]=r.map(x=>x.data);
+  const [st,rs,am,fm,ex,cl,pf]=r.map(x=>x.data);
+  D.staff=(pf||[]).filter(p=>p.role==='staff'&&p.active);
+  D.paid=st?.paid_staff||[];
+  D.cleaner=Object.fromEntries((cl||[]).filter(c=>c.staff_id).map(c=>[c.reservation_id,c.staff_id]));
   D.rate=st?.rate??3000;D.rent=st?.rent??45500;D.rentStart=st?.rent_start||'2027-02';D.lastSync=st?.last_sync||null;
   D.wifi=st?.wifi??4200;D.wifiStart=st?.wifi_start??'2026-08';D.initial=st?.initial_cost??null;
   D.res=rs||[];D.amounts=am||[];D.extras=ex||[];
@@ -179,14 +184,18 @@ function calc(m,items=buildItems()){
   const first=m+'-01',d=new Date(first+'T00:00');d.setMonth(d.getMonth()+1);const next=ymd(d);
   const days=diff(first,next);
   const nights=items.filter(i=>!i.cancelled).reduce((s,i)=>{const a=i.checkin>first?i.checkin:first,b=i.checkout<next?i.checkout:next;return s+Math.max(0,diff(a,b))},0);
-  const cleanN=items.filter(i=>!i.cancelled&&i.checkout.startsWith(m)).length;
-  const extra=D.extras.filter(e=>e.date.startsWith(m)).reduce((s,e)=>s+e.amount,0);
+  // 清掃費は「清掃費に入れるスタッフ」が担当した清掃だけ（チェックアウト日の月）
+  const paid=new Set(D.paid||[]);
+  const outs=(D.res||[]).filter(r=>!r.cancelled&&r.checkout.startsWith(m));
+  const cleanN=outs.filter(r=>paid.has(D.cleaner?.[r.id])).length;
+  const unassigned=outs.filter(r=>!D.cleaner?.[r.id]).length;
+  const extra=D.extras.filter(e=>e.date.startsWith(m)&&paid.has(e.staff_id)).reduce((s,e)=>s+e.amount,0);
   const fm=D.months[m]||{};
   const rent=m>=D.rentStart?D.rent:0;
   const wifi=D.wifiStart&&m>=D.wifiStart?D.wifi:0;
   const util=['electricity','gas','water','other'].reduce((s,k)=>s+(fm[k]||0),0);
   const cleaning=cleanN*D.rate+extra;
-  return {live,cxl,income,air,bk,nights,days,cleanN,extra,cleaning,rent,wifi,fm,util,expense:rent+wifi+cleaning+util};
+  return {live,cxl,income,air,bk,nights,days,cleanN,unassigned,extra,cleaning,rent,wifi,fm,util,expense:rent+wifi+cleaning+util};
 }
 
 const TAG={auto:['auto','自動'],wait:['est','見込み・メール待ち'],est:['est','見込み'],manual:['man','手入力']};
@@ -249,6 +258,7 @@ function renderYear(){
   ${footHtml()}`;
 }
 
+const paidNames=()=>(D.staff||[]).filter(s=>(D.paid||[]).includes(s.id)).map(s=>h(s.name)+'さん').join('・')||'スタッフ';
 function footHtml(){
   return `<div class="foot">
    <button class="btn ghost small" id="sync">今すぐ予約を取り込む</button>
@@ -261,6 +271,9 @@ function footHtml(){
     <label>Wi-Fi（月額）<input type="number" min="0" id="s-wifi" value="${D.wifi}" style="width:9em"></label>
     <label>Wi-Fiが発生する月<input type="month" id="s-wstart" value="${D.wifiStart||''}"></label>
     <label>初期費用（回収率の計算に使います）<input type="number" min="0" id="s-init" value="${D.initial??''}" placeholder="未入力" style="width:10em"></label>
+    <fieldset style="border:0;padding:0;margin:0;display:grid;gap:4px"><legend style="padding:0;margin-bottom:4px">清掃費に入れるスタッフ</legend>
+     ${(D.staff||[]).map(s=>`<label><input type="checkbox" id="pay-${s.id}" data-pay="${s.id}" ${(D.paid||[]).includes(s.id)?'checked':''}> ${h(s.name)}</label>`).join('')}
+    </fieldset>
    </div>
   </details>`;
 }
@@ -291,10 +304,11 @@ function render(){
    <div class="ledger">
     <div class="line"><div class="what">家賃${c.rent?'':`<span class="note">${rs[0]}年${rs[1]}月から発生</span>`}</div><div class="amt">${yen(c.rent)}</div></div>
     <div class="line"><div class="what">Wi-Fi</div><div class="amt">${yen(c.wifi)}</div></div>
-    <div class="line"><div class="what">清掃費<span class="note">${c.cleanN}回 × ${yen(D.rate)}${c.extra?` ＋ 追加作業 ${yen(c.extra)}`:''}</span></div><div class="amt">${yen(c.cleaning)}</div></div>
+    <div class="line"><div class="what">清掃費<span class="note">${paidNames()}の担当 ${c.cleanN}回 × ${yen(D.rate)}${c.extra?` ＋ 追加作業 ${yen(c.extra)}`:''}</span></div><div class="amt">${yen(c.cleaning)}</div>
+     ${c.unassigned?`<div class="sub">担当がまだ決まっていない清掃が${c.unassigned}回あります（決まると自動で入ります）。</div>`:''}</div>
     ${utilLine('electricity','電気')}${utilLine('gas','ガス')}${utilLine('water','水道')}${utilLine('other','その他')}
    </div>
-   <p class="note">電気・ガス・水道は入力すると自動で保存されます。清掃費は清掃シフト帳の単価と追加作業から計算しています。</p>
+   <p class="note">電気・ガス・水道は入力すると自動で保存されます。清掃費は清掃シフト帳の担当者・単価・追加作業から計算しています。</p>
   </section>
   ${footHtml()}`;
 }
@@ -315,7 +329,7 @@ async function saveBooking(id,el){
   const {error}=await sb.from('booking_amounts').upsert(row);toast(error?'保存できませんでした':'保存しました');
 }
 async function saveSetting(patch){
-  const map={rent:'rent',rent_start:'rentStart',wifi:'wifi',wifi_start:'wifiStart',initial_cost:'initial'};
+  const map={rent:'rent',rent_start:'rentStart',wifi:'wifi',wifi_start:'wifiStart',initial_cost:'initial',paid_staff:'paid'};
   Object.entries(patch).forEach(([k,v])=>D[map[k]]=v);render();
   const {error}=await sb.from('settings').update(patch).eq('id',1);toast(error?'保存できませんでした':'保存しました');
 }
@@ -334,6 +348,7 @@ document.addEventListener('change',e=>{
   else if(el.id==='s-start'&&el.value)saveSetting({rent_start:el.value});
   else if(el.id==='s-wifi')saveSetting({wifi:Math.max(0,Math.round(+el.value||0))});
   else if(el.id==='s-wstart')saveSetting({wifi_start:el.value||null});
+  else if(el.dataset.pay){const id=el.dataset.pay;const s=new Set(D.paid||[]);el.checked?s.add(id):s.delete(id);saveSetting({paid_staff:[...s]})}
   else if(el.id==='s-init')saveSetting({initial_cost:el.value===''?null:Math.max(0,Math.round(+el.value))});
 });
 document.addEventListener('click',e=>{
