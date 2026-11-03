@@ -152,11 +152,17 @@ function buildItems(){
   const used=new Set(),items=[];
   // Airbnb：メールの金額（ホスティング収入）を正とする
   amts.sort((a,b)=>(a.mail_at||'')<(b.mail_at||'')?1:-1).forEach(a=>{
-    const k=key(a.checkin,a.checkout);const r=resAir[k];
+    // 延泊・短縮があれば変更後の日付を使い、金額は1泊あたりの受取額×変更後の泊数（メールに金額がないため）
+    const alt=a.alt_checkin&&a.alt_checkout&&(a.alt_checkin!==a.checkin||a.alt_checkout!==a.checkout);
+    const ci=alt?a.alt_checkin:a.checkin,co=alt?a.alt_checkout:a.checkout;
+    const k=key(ci,co);const r=resAir[k];
     if(items.some(i=>i.k===k))return; // 同じ日程は最新のメールだけ使う
     if(r)used.add(r.id);
     if(a.excluded){items.push({k,excluded:true});return} // 売上に数えない予約（予約ごとに設定）
-    items.push({src:'airbnb',k,checkin:a.checkin,checkout:a.checkout,amount:a.payout,kind:'auto',code:a.code,cancelled:a.cancelled||!!r?.cancelled});
+    const id='adj:'+a.code,m=manual[id];
+    const amount=m??(alt?Math.round(a.payout/diff(a.checkin,a.checkout)*diff(ci,co)):a.payout);
+    items.push({src:'airbnb',id,k,checkin:ci,checkout:co,amount,kind:m!=null?'manual':alt?'changed':'auto',
+      orig:alt?{checkin:a.checkin,checkout:a.checkout,payout:a.payout}:null,code:a.code,cancelled:a.cancelled||!!r?.cancelled});
   });
   // 1泊あたりの平均（Airbnbの実績から）
   const ok=items.filter(i=>!i.cancelled&&i.amount);
@@ -200,15 +206,19 @@ function calc(m,items=buildItems()){
   return {live,cxl,income,air,bk,nights,days,cleanN,unassigned,extra,cleaningAuto,cleaning,rent,wifi,fm,util,expense:rent+wifi+cleaning+util};
 }
 
-const TAG={auto:['auto','自動'],wait:['est','見込み・メール待ち'],est:['est','見込み'],manual:['man','手入力']};
+const TAG={auto:['auto','自動'],wait:['est','見込み・メール待ち'],est:['est','見込み'],manual:['man','手入力'],changed:['est','日程変更・見込み']};
 function incomeLine(i){
   const n=diff(i.checkin,i.checkout),t=TAG[i.kind];
-  const edit=i.src==='booking'?`<label class="inp note">実際の金額<input type="number" min="0" step="1" inputmode="numeric" id="bk-${h(i.id)}" data-bk="${h(i.id)}" value="${i.kind==='manual'?i.amount:''}" placeholder="${i.amount}"></label>`:'';
+  const edit=`<label class="inp note">実際の金額<input type="number" min="0" step="1" inputmode="numeric" id="bk-${h(i.id)}" data-bk="${h(i.id)}" value="${i.kind==='manual'?i.amount:''}" placeholder="${i.amount}"></label>`;
+  const o=i.orig||null;
+  const why=i.src==='booking'?'Booking.comのメールには金額が書かれていないため、Airbnbの1泊平均で計算しています。'
+    :o?`日程が変わりました（元は${md(o.checkin)}〜${md(o.checkout)}・${diff(o.checkin,o.checkout)}泊で${yen(o.payout)}）。変更のメールには金額がないため、1泊あたりの受取額で計算しています。`
+    :i.kind==='manual'?'金額を手入力しています。空にすると自動に戻ります。':'';
   return `<div class="line${i.cancelled?' cxl':''}">
    <div class="what"><span class="chip ${i.src}">${SRC[i.src]}</span><span class="dates">${md(i.checkin)}〜${md(i.checkout)}</span><span class="note">${n}泊</span>
     ${i.cancelled?'<span class="tag cxl">キャンセル</span>':`<span class="tag ${t[0]}">${t[1]}</span>`}</div>
    <div class="amt">${yen(i.amount||0)}</div>
-   ${!i.cancelled&&i.src==='booking'?`<div class="sub">Booking.comのメールには金額が書かれていないため、Airbnbの1泊平均で計算しています。${edit}</div>`:''}
+   ${!i.cancelled&&why&&i.id?`<div class="sub">${why}${edit}</div>`:''}
   </div>`;
 }
 function utilLine(k,label){
