@@ -134,9 +134,12 @@ async function loadAll(){
     sb.from('extras').select('date,amount,staff_id'),
     sb.from('cleanings').select('reservation_id,staff_id'),
     sb.from('profiles').select('id,name,role,active'),
-    sb.from('stay_events').select('kind,checkin,checkout,day,stars')]);
+    sb.from('stay_events').select('kind,checkin,checkout,day,stars'),
+    sb.from('booking_invoices').select('*'),
+    sb.from('booking_mails').select('*')]);
   const bad=r.find(x=>x.error);if(bad){console.error(bad.error);toast('データを読み込めませんでした。通信を確認してください');return false}
-  const [st,rs,am,fm,ex,cl,pf,evs]=r.map(x=>x.data);
+  const [st,rs,am,fm,ex,cl,pf,evs,inv,bm]=r.map(x=>x.data);
+  D.invoices=Object.fromEntries((inv||[]).map(v=>[v.month,v]));D.bmails=bm||[];
   D.events=evs||[];
   D.staff=(pf||[]).filter(p=>p.role==='staff'&&p.active);
   D.paid=st?.paid_staff||[];
@@ -203,11 +206,11 @@ function buildItems(){
   });
   const airNights=items.filter(i=>i.src==='airbnb'&&!i.cancelled&&!i.unverified);
   const overlaps=(a,b,c,d)=>a<d&&c<b;
-  // Booking.comのカレンダーには「受付期間外」の長いブロック（例：2028年4月の30泊）も入るので、28泊以上は予約として扱わない
-  D.res.filter(r=>r.source==='booking'&&diff(r.checkin,r.checkout)<28).forEach(r=>{
-    if(!r.cancelled&&airNights.some(i=>overlaps(r.checkin,r.checkout,i.checkin,i.checkout)))return; // Airbnb予約のブロック表示は除く
-    const id='booking:'+r.id;const m=manual[id];
-    items.push({src:'booking',id,checkin:r.checkin,checkout:r.checkout,amount:m??Math.round(avg*diff(r.checkin,r.checkout)),kind:m!=null?'manual':'est',cancelled:r.cancelled});
+  // Booking.com：カレンダー（iCal）には実際の予約が載らないため使わない。予約メール（予約番号・チェックイン日）を使う。
+  // 泊数・金額はメールにないので、請求書が届くまでは1泊×Airbnbの1泊平均の見込み。請求書が届いた月は請求書の金額にする（calcで差し替え）
+  (D.bmails||[]).forEach(b=>{
+    const id='booking:'+b.res_id,m=manual[id];
+    items.push({src:'booking',id,res:b.res_id,checkin:b.checkin,checkout:add(b.checkin,1),nightsUnknown:true,amount:m??Math.round(avg),kind:m!=null?'manual':'est',cancelled:b.status==='cancelled'});
   });
   return items.filter(i=>!i.excluded);
 }
@@ -218,7 +221,12 @@ function calc(m,items=buildItems()){
   live.forEach(i=>{if(i.src==='airbnb')i.review=reviewOf(i)});
   const reviews=live.filter(i=>i.review).length,five=live.filter(i=>i.review?.stars===5).length;
   const sum=l=>l.reduce((s,i)=>s+(i.amount||0),0);
-  const income=sum(live),air=sum(live.filter(i=>i.src==='airbnb')),bk=income-air;
+  // Booking.comは請求書が届いた月なら、請求書の客室売上から手数料を引いた額を正とする
+  const inv=D.invoices?.[m];
+  const bkLive=live.filter(i=>i.src==='booking');
+  if(inv){const net=inv.room-inv.commission-(inv.fee||0);bkLive.forEach((i,n)=>{i.amount=n===0?net:0;i.kind='invoice';i.inv=inv})}
+  if(inv&&!bkLive.length)live.push({src:'booking',kind:'invoice',checkin:m+'-01',checkout:m+'-02',nightsUnknown:true,amount:inv.room-inv.commission-(inv.fee||0),inv,id:'inv:'+m});
+  const air=sum(live.filter(i=>i.src==='airbnb')),bk=inv&&!bkLive.length?inv.room-inv.commission-(inv.fee||0):sum(bkLive),income=air+bk;
   // 宿泊日数はその月に泊まった夜の数（月をまたぐ予約は月ごとに分ける）
   const first=m+'-01',d=new Date(first+'T00:00');d.setMonth(d.getMonth()+1);const next=ymd(d);
   const days=diff(first,next);
@@ -238,22 +246,23 @@ function calc(m,items=buildItems()){
   return {live,cxl,unv,reviews,five,income,air,bk,nights,days,cleanN,unassigned,extra,cleaningAuto,cleaning,rent,wifi,fm,util,expense:rent+wifi+cleaning+util};
 }
 
-const TAG={auto:['auto','自動'],wait:['est','見込み・メール待ち'],est:['est','見込み'],manual:['man','手入力'],changed:['est','日程変更・見込み']};
+const TAG={auto:['auto','自動'],wait:['est','見込み・メール待ち'],est:['est','見込み'],manual:['man','手入力'],changed:['est','日程変更・見込み'],invoice:['auto','請求書で確定']};
 function incomeLine(i){
   const n=diff(i.checkin,i.checkout),t=TAG[i.kind];
   const edit=`<label class="inp note">実際の金額<input type="number" min="0" step="1" inputmode="numeric" id="bk-${h(i.id)}" data-bk="${h(i.id)}" value="${i.kind==='manual'?i.amount:''}" placeholder="${i.amount}"></label>`;
   const o=i.orig||null;
-  const why=i.src==='booking'?'Booking.comのメールには金額が書かれていないため、Airbnbの1泊平均で計算しています。'
+  const why=i.kind==='invoice'?(i.amount?`${md(i.checkin).replace(/\(.\)/,'')}の月の請求書：客室売上${yen(i.inv.room)} − 手数料${yen(i.inv.commission)} − 決済手数料${yen(i.inv.fee||0)}。予約ごとの金額は請求書にないため、この月のBooking.comの合計をここにまとめています。`:'この月の請求書の合計に含まれています。')
+    :i.src==='booking'?`予約番号 ${h(i.res||'')}。Booking.comのメールには泊数・金額がないため、1泊×Airbnbの1泊平均で見込みを出しています。翌月はじめの請求書が届くと実際の金額に変わります。`
     :o?`日程が変わりました（元は${md(o.checkin)}〜${md(o.checkout)}・${diff(o.checkin,o.checkout)}泊で${yen(o.payout)}）。変更のメールには金額がないため、1泊あたりの受取額で計算しています。`
     :i.kind==='manual'?'金額を手入力しています。空にすると自動に戻ります。':'';
   return `<div class="line${i.cancelled?' cxl':''}">
-   <div class="what"><span class="chip ${i.src}">${SRC[i.src]}</span><span class="dates">${md(i.checkin)}〜${md(i.checkout)}</span><span class="note">${n}泊</span>
+   <div class="what"><span class="chip ${i.src}">${SRC[i.src]}</span><span class="dates">${i.id?.startsWith('inv:')?(+i.checkin.slice(5,7))+'月分の請求書':i.nightsUnknown?md(i.checkin)+'〜':md(i.checkin)+'〜'+md(i.checkout)}</span><span class="note">${i.nightsUnknown?(i.id?.startsWith('inv:')?'':'泊数不明'):n+'泊'}</span>
     ${i.cancelled?'<span class="tag cxl">キャンセル</span>':i.unverified?'<span class="tag cxl">宿泊の確認なし</span>':`<span class="tag ${t[0]}">${t[1]}</span>`}
     ${i.review?`<span class="tag rev">口コミ</span>${i.review.stars?`<span class="tag star">${'★'.repeat(i.review.stars)}${i.review.stars}</span>`:'<span class="tag rev">星はまだ非公開</span>'}`:''}</div>
    <div class="amt">${yen(i.amount||0)}</div>
    ${i.unverified?`<div class="sub">予約確定のメールはありますが、到着リマインダー・レビュー依頼・口コミ・予約カレンダーのどれにも記録がないため、売上に入れていません（キャンセルのメールが届かなかった予約の可能性があります）。確認コード ${h(i.code)}${i.guest?`・${h(i.guest)}さん`:''}<button class="btn ghost small" data-verify="${h(i.code)}" data-v="1">泊まったので売上に入れる</button></div>`
     :!i.cancelled&&i.forced&&i.src==='airbnb'?`<div class="sub">手動で「泊まった」にしています。<button class="btn ghost small" data-verify="${h(i.code)}" data-v="">元に戻す</button></div>`
-    :!i.cancelled&&why&&i.id?`<div class="sub">${why}${edit}</div>`:''}
+    :!i.cancelled&&why&&i.id?`<div class="sub">${why}${i.kind==='invoice'?'':edit}</div>`:''}
   </div>`;
 }
 function utilLine(k,label){
