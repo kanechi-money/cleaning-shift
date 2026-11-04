@@ -416,28 +416,59 @@ document.addEventListener('click',e=>{
   else if(id==='sync')syncNow();
 });
 
-function renderLogin(){
-  $('#mon').hidden=true;
+function renderLogin(msg){
+  $('#mon').hidden=true;$('#views').hidden=true;
   $('#main').innerHTML=`<form id="authf" class="card" style="margin-top:24px;max-width:420px">
-   <p class="note" style="margin:0">清掃シフト帳と同じオーナーのアカウントでログインしてください。</p>
+   <p class="note" style="margin:0">清掃シフト帳のオーナー（髙雄梨夏）のアカウントでログインしてください。スタッフ用のアカウント（りか・みさこ）では見られません。</p>
    <label>メールアドレス<input type="email" id="au-mail" required autocomplete="email" style="width:100%"></label>
    <label>パスワード<input type="password" id="au-pass" required autocomplete="current-password" style="width:100%"></label>
-   <button class="btn" type="submit">ログイン</button></form>`;
-  $('#authf').onsubmit=async e=>{e.preventDefault();
+   <p id="au-msg" class="note" role="alert" style="margin:0;color:var(--danger)">${h(msg||'')}</p>
+   <button class="btn" type="submit">ログイン</button>
+   <button class="btn ghost small" type="button" id="au-forgot" style="justify-self:start">パスワードを忘れた</button></form>`;
+  const say=t=>{$('#au-msg').textContent=t};
+  $('#authf').onsubmit=async e=>{e.preventDefault();say('ログインしています…');
     const {error}=await sb.auth.signInWithPassword({email:$('#au-mail').value.trim(),password:$('#au-pass').value});
-    if(error)toast('メールアドレスかパスワードが違います')};
+    if(!error)return;
+    say(/invalid login/i.test(error.message)?'メールアドレスかパスワードが違います。清掃シフト帳のオーナーのアカウントか確認してください。分からないときは「パスワードを忘れた」から設定し直せます。'
+      :/not confirmed/i.test(error.message)?'このメールアドレスの確認がまだです。届いている確認メールのリンクを開いてください。'
+      :'ログインできませんでした：'+error.message)};
+  $('#au-forgot').onclick=async()=>{const email=$('#au-mail').value.trim();
+    if(!email){say('メールアドレスを入れてから押してください');return}
+    const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});
+    say(error?'送れませんでした：'+error.message:'パスワード再設定のメールを送りました。メールのリンクを開くと、このページで新しいパスワードを決められます。')};
 }
-let startedFor=null;
+function renderNewPassword(){
+  $('#mon').hidden=true;$('#views').hidden=true;
+  $('#main').innerHTML=`<form id="npf" class="card" style="margin-top:24px;max-width:420px">
+   <p class="note" style="margin:0">新しいパスワードを決めてください（6文字以上）。清掃シフト帳も同じパスワードになります。</p>
+   <label>新しいパスワード<input type="password" id="np-pass" required minlength="6" autocomplete="new-password" style="width:100%"></label>
+   <p id="np-msg" class="note" role="alert" style="margin:0;color:var(--danger)"></p>
+   <button class="btn" type="submit">このパスワードにする</button></form>`;
+  $('#npf').onsubmit=async e=>{e.preventDefault();
+    const {error}=await sb.auth.updateUser({password:$('#np-pass').value});
+    if(error){$('#np-msg').textContent='変更できませんでした：'+error.message;return}
+    toast('パスワードを変更しました');recovering=false;startedFor=null;start((await sb.auth.getSession()).data.session)};
+}
+let startedFor=null,recovering=false;
 async function start(session){
+  if(recovering)return;
   if(!session){startedFor=null;renderLogin();return}
   if(startedFor===session.user.id)return;startedFor=session.user.id;
   $('#main').innerHTML='<p class="empty">読み込み中…</p>';
-  const {data:p}=await sb.from('profiles').select('role,active').eq('id',session.user.id).maybeSingle();
-  if(p?.role!=='owner'||!p.active){$('#main').innerHTML='<p class="empty">収支表はオーナーだけが見られます。</p>';return}
+  const {data:p,error}=await sb.from('profiles').select('name,role,active').eq('id',session.user.id).maybeSingle();
+  if(error){$('#main').innerHTML=`<p class="empty">読み込めませんでした：${h(error.message)}</p>`;return}
+  if(p?.role!=='owner'||!p.active){
+    $('#main').innerHTML=`<div class="card" style="margin-top:24px;max-width:420px"><p style="margin:0">いま「${h(p?.name||session.user.email)}」のアカウントでログインしています。このアカウントはスタッフ用のため、収支表は見られません。</p>
+     <button class="btn" id="logout" style="justify-self:start">ログアウトしてオーナーのアカウントで入り直す</button></div>`;
+    $('#logout').onclick=async()=>{await sb.auth.signOut()};return}
   if(await loadAll())render();
+  else $('#main').innerHTML='<p class="empty">データを読み込めませんでした。通信を確認して、ページを開き直してください。</p>';
 }
 sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
-sb.auth.onAuthStateChange((ev,s)=>{if(ev==='SIGNED_IN'||ev==='SIGNED_OUT'||ev==='INITIAL_SESSION')setTimeout(()=>start(s),0)});
+sb.auth.onAuthStateChange((ev,s)=>{
+  if(ev==='PASSWORD_RECOVERY'){recovering=true;setTimeout(renderNewPassword,0);return}
+  if(ev==='USER_UPDATED'){recovering=false;return}
+  if(ev==='SIGNED_IN'||ev==='SIGNED_OUT'||ev==='INITIAL_SESSION')setTimeout(()=>start(s),0)});
 document.addEventListener('visibilitychange',async()=>{if(document.visibilityState==='visible'&&startedFor&&!document.activeElement?.matches('input')){if(await loadAll())render()}});
 </script>
 </body></html>
