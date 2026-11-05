@@ -212,8 +212,10 @@ function buildItems(){
     const id='booking:'+b.res_id,m=manual[id];
     items.push({src:'booking',id,res:b.res_id,checkin:b.checkin,checkout:add(b.checkin,1),nightsUnknown:true,amount:m??Math.round(avg),kind:m!=null?'manual':'est',cancelled:b.status==='cancelled'});
   });
-  return items.filter(i=>!i.excluded);
+  // Booking.comの売上を数えない月（2026-11-05 オーナー指示：10月のBooking.comは全部入れない）
+  return items.filter(i=>!i.excluded&&!(i.src==='booking'&&BK_SKIP.includes(i.checkout.slice(0,7))));
 }
+const BK_SKIP=['2026-10'];
 
 function calc(m,items=buildItems()){
   // 売上はチェックアウト日の月で数える（Airbnbの「◯月のホスティング収入」、Booking.comの請求書と同じ数え方）
@@ -223,7 +225,7 @@ function calc(m,items=buildItems()){
   const reviews=live.filter(i=>i.review).length,five=live.filter(i=>i.review?.stars===5).length;
   const sum=l=>l.reduce((s,i)=>s+(i.amount||0),0);
   // Booking.comは請求書が届いた月なら、請求書の客室売上から手数料を引いた額を正とする
-  const inv=D.invoices?.[m];
+  const inv=BK_SKIP.includes(m)?null:D.invoices?.[m];
   const bkLive=live.filter(i=>i.src==='booking');
   if(inv){const net=inv.room-inv.commission-(inv.fee||0);bkLive.forEach((i,n)=>{i.amount=n===0?net:0;i.kind='invoice';i.inv=inv})}
   if(inv&&!bkLive.length)live.push({src:'booking',kind:'invoice',checkin:m+'-01',checkout:m+'-02',nightsUnknown:true,amount:inv.room-inv.commission-(inv.fee||0),inv,id:'inv:'+m});
