@@ -216,7 +216,8 @@ function buildItems(){
 }
 
 function calc(m,items=buildItems()){
-  const inMonth=items.filter(i=>i.checkin.startsWith(m)).sort((a,b)=>a.checkin<b.checkin?-1:1);
+  // 売上はチェックアウト日の月で数える（Airbnbの「◯月のホスティング収入」、Booking.comの請求書と同じ数え方）
+  const inMonth=items.filter(i=>i.checkout.startsWith(m)).sort((a,b)=>a.checkin<b.checkin?-1:1);
   const live=inMonth.filter(i=>!i.cancelled&&!i.unverified),cxl=inMonth.filter(i=>i.cancelled),unv=inMonth.filter(i=>!i.cancelled&&i.unverified);
   live.forEach(i=>{if(i.src==='airbnb')i.review=reviewOf(i)});
   const reviews=live.filter(i=>i.review).length,five=live.filter(i=>i.review?.stars===5).length;
@@ -350,11 +351,11 @@ function render(){
    <div class="tot"><span>支出</span><b>${yen(c.expense)}</b></div>
    <div class="tot profit"><span>収支</span><b class="${profit<0?'neg':''}">${yen(profit)}</b></div>
   </div>
-  <p class="note revsum" style="margin:0">口コミ <b>${c.reviews}</b>件・★5 <b>${c.five}</b>件（この月にチェックインした予約）</p>
-  <p class="note" style="margin:0">売上はチェックイン日の月で数えています。${c.live.some(i=>i.kind!=='auto'&&i.kind!=='manual')?'「見込み」を含みます。':''}</p>
+  <p class="note revsum" style="margin:0">口コミ <b>${c.reviews}</b>件・★5 <b>${c.five}</b>件（この月にチェックアウトした予約）</p>
+  <p class="note" style="margin:0">売上はチェックアウト日の月で数えています（Airbnbの月ごとの収入と同じ数え方）。${c.live.some(i=>i.kind!=='auto'&&i.kind!=='manual')?'「見込み」を含みます。':''}</p>
 
   <section class="sect"><h2><span>売上（${c.live.length}件）</span><span class="num">${yen(c.income)}</span></h2>
-   <div class="ledger">${c.live.map(incomeLine).join('')||'<p class="empty">この月にチェックインする予約はありません。</p>'}</div>
+   <div class="ledger">${c.live.map(incomeLine).join('')||'<p class="empty">この月にチェックアウトする予約はありません。</p>'}</div>
    ${c.unv.length?`<details open><summary>宿泊の確認がとれない予約 ${c.unv.length}件（合計に入れていません）</summary><div class="ledger">${c.unv.map(incomeLine).join('')}</div></details>`:''}
    ${c.cxl.length?`<details><summary>キャンセル ${c.cxl.length}件（合計に入れていません）</summary><div class="ledger">${c.cxl.map(incomeLine).join('')}</div></details>`:''}
   </section>
