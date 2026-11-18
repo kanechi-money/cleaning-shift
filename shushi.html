@@ -47,6 +47,7 @@ input[type=number],input[type=text],input[type=email],input[type=password],input
 .tot b{font-family:var(--font-num);font-size:1.25rem;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .tot.profit{background:var(--accent-soft);border-color:transparent}
 .tot.profit b.neg{color:var(--danger)}
+.tot small.margin{display:block;font-size:12px;color:var(--muted,inherit);opacity:.85;margin-top:2px}
 .note{font-size:.82rem;color:var(--muted)}
 .sect{margin-top:26px}
 .sect h2{font-size:.9rem;margin:0 0 8px;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
@@ -293,12 +294,13 @@ function renderYear(){
    ['家賃',c=>c.rent,Y],['水道代',fmk('water'),Y],['ガス代',fmk('gas'),Y],['電気代',fmk('electricity'),Y],
    ['Wi-Fi',c=>c.wifi,Y],['清掃代',c=>c.cleaning,Y],['その他',fmk('other'),Y],
    ['経費合計',c=>c.expense,Y,'sum','total'],
-   ['利益',c=>c.profit,Y,'sum','profit'],['累計利益',c=>c.cum,Y,'none'],
+   ['利益',c=>c.profit,Y,'sum','profit'],['利益率',c=>c.income?c.profit/c.income:null,P,'margin'],['累計利益',c=>c.cum,Y,'none'],
    ['回収率',c=>D.initial?c.cum/D.initial:null,P,'recover'],
    ['口コミ数',c=>c.reviews,v=>v+'件'],['★5獲得数',c=>c.five,v=>v+'件'],
   ];
   const totalCell=([,fn,f,mode='sum'])=>{
     if(mode==='rate')return P(tot('nights')/tot('days'));
+    if(mode==='margin')return tot('income')?P(cum/tot('income')):'';
     if(mode==='recover')return D.initial?P(cum/D.initial):'';
     return mode==='none'?'':f(T(fn))};
   const neg=v=>typeof v==='number'&&v<0;
@@ -306,7 +308,7 @@ function renderYear(){
   <div class="totals">
    <div class="tot"><span>年度の売上</span><b>${yen(tot('income'))}</b></div>
    <div class="tot"><span>年度の経費</span><b>${yen(tot('expense'))}</b></div>
-   <div class="tot profit"><span>年度の利益</span><b class="${cum<0?'neg':''}">${yen(cum)}</b></div>
+   <div class="tot profit"><span>年度の利益</span><b class="${cum<0?'neg':''}">${yen(cum)}</b><small class="margin">利益率 ${tot('income')?(cum/tot('income')*100).toFixed(1)+'%':'—'}</small></div>
   </div>
   <p class="note revsum" style="margin:0">口コミ <b>${tot('reviews')}</b>件・★5 <b>${tot('five')}</b>件（年度）</p>
   <div class="ytable"><table>
@@ -314,7 +316,7 @@ function renderYear(){
    <tbody>${rows.map(r=>{const [label,fn,f,,cls='']=r;
      return `<tr class="${cls}"><th scope="row">${label}</th>${cs.map(c=>{const v=fn(c);return `<td class="${neg(v)?'neg':''}">${f(v)}</td>`}).join('')}<td class="sum">${totalCell(r)}</td></tr>`}).join('')}</tbody>
   </table></div>
-  <p class="note">回収率は、累計利益が初期費用${D.initial?yen(D.initial):'（未入力）'}の何％まで戻ったかです。月の名前を押すと、その月の明細が開きます。Airbnbの売上は手数料を引いた受取額です。「見込み」の金額も合計に入っています。</p>
+  <p class="note">利益率は、売上のうち利益として残った割合（利益÷売上）です。回収率は、累計利益が初期費用${D.initial?yen(D.initial):'（未入力）'}の何％まで戻ったかです。月の名前を押すと、その月の明細が開きます。Airbnbの売上は手数料を引いた受取額です。「見込み」の金額も合計に入っています。</p>
   ${footHtml()}`;
 }
 
@@ -351,7 +353,7 @@ function render(){
   <div class="totals">
    <div class="tot"><span>売上</span><b>${yen(c.income)}</b></div>
    <div class="tot"><span>支出</span><b>${yen(c.expense)}</b></div>
-   <div class="tot profit"><span>収支</span><b class="${profit<0?'neg':''}">${yen(profit)}</b></div>
+   <div class="tot profit"><span>収支</span><b class="${profit<0?'neg':''}">${yen(profit)}</b><small class="margin">利益率 ${c.income?(profit/c.income*100).toFixed(1)+'%':'—'}</small></div>
   </div>
   <p class="note revsum" style="margin:0">口コミ <b>${c.reviews}</b>件・★5 <b>${c.five}</b>件（この月にチェックアウトした予約）</p>
   <p class="note" style="margin:0">売上はチェックアウト日の月で数えています（Airbnbの月ごとの収入と同じ数え方）。${c.live.some(i=>i.kind!=='auto'&&i.kind!=='manual')?'「見込み」を含みます。':''}</p>
