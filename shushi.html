@@ -135,7 +135,7 @@ async function loadAll(){
     sb.from('extras').select('date,amount,staff_id'),
     sb.from('cleanings').select('reservation_id,staff_id'),
     sb.from('profiles').select('id,name,role,active'),
-    sb.from('stay_events').select('kind,checkin,checkout,day,stars'),
+    sb.from('stay_events').select('kind,checkin,checkout,day,stars,name,mail_at'),
     sb.from('booking_invoices').select('*'),
     sb.from('booking_mails').select('*')]);
   const bad=r.find(x=>x.error);if(bad){console.error(bad.error);toast('データを読み込めませんでした。通信を確認してください');return false}
@@ -209,14 +209,28 @@ function buildItems(){
   const overlaps=(a,b,c,d)=>a<d&&c<b;
   // Booking.com：カレンダー（iCal）には実際の予約が載らないため使わない。予約メール（予約番号・チェックイン日）を使う。
   // 泊数・金額はメールにないので、請求書が届くまでは1泊×Airbnbの1泊平均の見込み。請求書が届いた月は請求書の金額にする（calcで差し替え）
+  // 予約メールには泊数・金額がないので、同じチェックイン日の「問い合わせ」「予約リクエスト」のメール（チェックアウト日・合計料金が載っている）で補う
+  const quotes=(D.events||[]).filter(e=>e.kind==='bk_quote'&&e.checkin&&e.checkout);
+  const rate=bkNetRate();
   (D.bmails||[]).forEach(b=>{
     const id='booking:'+b.res_id,m=manual[id];
-    items.push({src:'booking',id,res:b.res_id,checkin:b.checkin,checkout:add(b.checkin,1),nightsUnknown:true,amount:m??Math.round(avg),kind:m!=null?'manual':'est',cancelled:b.status==='cancelled'});
+    const limit=b.mail_at?new Date(b.mail_at).getTime()+864e5:Infinity; // 予約より前（同日のずれは1日まで）に届いたもの
+    const q=quotes.filter(e=>e.checkin===b.checkin&&(!e.mail_at||new Date(e.mail_at).getTime()<=limit))
+      .sort((x,y)=>(x.mail_at||'')<(y.mail_at||'')?1:-1)[0];
+    const total=q?Number(q.name)||0:0,nights=q?diff(q.checkin,q.checkout):1;
+    const est=total?Math.round(total*rate):Math.round(avg*nights);
+    items.push({src:'booking',id,res:b.res_id,checkin:b.checkin,checkout:q?q.checkout:add(b.checkin,1),nightsUnknown:!q,quote:total||null,rate,
+      amount:m??est,kind:m!=null?'manual':total?'quote':'est',cancelled:b.status==='cancelled'});
   });
   // Booking.comの売上を数えない月（2026-11-05 オーナー指示：10月のBooking.comは全部入れない）
   return items.filter(i=>!i.excluded&&!(i.src==='booking'&&BK_SKIP.includes(i.checkout.slice(0,7))));
 }
 const BK_SKIP=['2026-10'];
+// Booking.comの受取額の割合（いちばん新しい請求書の「客室売上−手数料−決済手数料」÷客室売上）。請求書がなければ85%
+function bkNetRate(){
+  const v=Object.values(D.invoices||{}).filter(v=>v.room>0).sort((a,b)=>a.month<b.month?1:-1)[0];
+  return v?(v.room-v.commission-(v.fee||0))/v.room:0.85;
+}
 
 function calc(m,items=buildItems()){
   // 売上はチェックアウト日の月で数える（Airbnbの「◯月のホスティング収入」、Booking.comの請求書と同じ数え方）
@@ -228,7 +242,9 @@ function calc(m,items=buildItems()){
   // Booking.comは請求書が届いた月なら、請求書の客室売上から手数料を引いた額を正とする
   const inv=BK_SKIP.includes(m)?null:D.invoices?.[m];
   const bkLive=live.filter(i=>i.src==='booking');
-  if(inv){const net=inv.room-inv.commission-(inv.fee||0);bkLive.forEach((i,n)=>{i.amount=n===0?net:0;i.kind='invoice';i.inv=inv})}
+  // 請求書の合計を、予約ごとの見込み金額の割合で分ける（合計は請求書と1円まで同じ）
+  if(inv){const net=inv.room-inv.commission-(inv.fee||0),base=bkLive.reduce((s,i)=>s+(i.amount||0),0);let left=net;
+    bkLive.forEach((i,n)=>{const a=n===bkLive.length-1?left:Math.round(net*(base?(i.amount||0)/base:1/bkLive.length));left-=a;i.amount=a;i.kind='invoice';i.inv=inv})}
   if(inv&&!bkLive.length)live.push({src:'booking',kind:'invoice',checkin:m+'-01',checkout:m+'-02',nightsUnknown:true,amount:inv.room-inv.commission-(inv.fee||0),inv,id:'inv:'+m});
   const air=sum(live.filter(i=>i.src==='airbnb')),bk=inv&&!bkLive.length?inv.room-inv.commission-(inv.fee||0):sum(bkLive),income=air+bk;
   // 宿泊日数はその月に泊まった夜の数（月をまたぐ予約は月ごとに分ける）
@@ -250,13 +266,14 @@ function calc(m,items=buildItems()){
   return {live,cxl,unv,reviews,five,income,air,bk,nights,days,cleanN,unassigned,extra,cleaningAuto,cleaning,rent,wifi,fm,util,expense:rent+wifi+cleaning+util};
 }
 
-const TAG={auto:['auto','自動'],wait:['est','見込み・メール待ち'],est:['est','見込み'],manual:['man','手入力'],changed:['est','日程変更・見込み'],invoice:['auto','請求書で確定']};
+const TAG={auto:['auto','自動'],wait:['est','見込み・メール待ち'],est:['est','見込み'],manual:['man','手入力'],changed:['est','日程変更・見込み'],invoice:['auto','請求書で確定'],quote:['est','見込み']};
 function incomeLine(i){
   const n=diff(i.checkin,i.checkout),t=TAG[i.kind];
   const edit=`<label class="inp note">実際の金額<input type="number" min="0" step="1" inputmode="numeric" id="bk-${h(i.id)}" data-bk="${h(i.id)}" value="${i.kind==='manual'?i.amount:''}" placeholder="${i.amount}"></label>`;
   const o=i.orig||null;
-  const why=i.kind==='invoice'?(i.amount?`${md(i.checkin).replace(/\(.\)/,'')}の月の請求書：客室売上${yen(i.inv.room)} − 手数料${yen(i.inv.commission)} − 決済手数料${yen(i.inv.fee||0)}。予約ごとの金額は請求書にないため、この月のBooking.comの合計をここにまとめています。`:'この月の請求書の合計に含まれています。')
-    :i.src==='booking'?`予約番号 ${h(i.res||'')}。Booking.comのメールには泊数・金額がないため、1泊×Airbnbの1泊平均で見込みを出しています。翌月はじめの請求書が届くと実際の金額に変わります。`
+  const why=i.kind==='invoice'?(i.amount?`${md(i.checkin).replace(/\(.\)/,'')}の月の請求書：客室売上${yen(i.inv.room)} − 手数料${yen(i.inv.commission)} − 決済手数料${yen(i.inv.fee||0)}。予約ごとの金額は請求書にないため、この月のBooking.comの請求額を、予約ごとの見込み金額の割合で分けています。`:'この月の請求書の合計に含まれています。')
+    :i.src==='booking'&&i.quote?`予約番号 ${h(i.res||'')}。問い合わせ・予約リクエストのメールの合計料金${yen(i.quote)}から、Booking.comの手数料（${Math.round((1-i.rate)*1000)/10}%）を引いた見込みです。翌月はじめの請求書が届くと実際の金額に変わります。`
+    :i.src==='booking'?`予約番号 ${h(i.res||'')}。この予約の問い合わせ・予約リクエストのメールが見つからないため、1泊×Airbnbの1泊平均で見込みを出しています。翌月はじめの請求書が届くと実際の金額に変わります。`
     :o?`日程が変わりました（元は${md(o.checkin)}〜${md(o.checkout)}・${diff(o.checkin,o.checkout)}泊で${yen(o.payout)}）。変更のメールには金額がないため、1泊あたりの受取額で計算しています。`
     :i.kind==='manual'?'金額を手入力しています。空にすると自動に戻ります。':'';
   return `<div class="line${i.cancelled?' cxl':''}">
